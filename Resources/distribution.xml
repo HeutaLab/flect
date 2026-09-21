@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Installer definition used by scripts/package.sh. -->
+<installer-gui-script minSpecVersion="2">
+    <title>Flect</title>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="14.0"/>
+        </allowed-os-versions>
+    </volume-check>
+    <choices-outline>
+        <line choice="default">
+            <line choice="__BUNDLE_ID__"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="__BUNDLE_ID__" visible="false">
+        <pkg-ref id="__BUNDLE_ID__"/>
+    </choice>
+    <pkg-ref id="__BUNDLE_ID__" version="__VERSION__" onConclusion="none">Flect-component.pkg</pkg-ref>
+</installer-gui-script>
