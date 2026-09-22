@@ -27,8 +27,17 @@ F. Duncanh (it began as antimof's UxPlay) and builds on:
 Flect replaces UxPlay's GStreamer renderers with macOS's own video and
 audio frameworks, and adds the app around them.
 
+## Changes to UxPlay
+
+Flect modifies UxPlay's library so several devices can mirror at once
+(`patches/uxplay-multiple-clients.patch`, 22 September 2026). The changed
+files (`raop.c`, `raop.h`, `raop_handlers.h`, `httpd.c`, `httpd.h`) say so
+in their headers, and each change is marked `Flect:`. libplist is
+unmodified.
+
 ## Keeping the copies current
 
 `scripts/vendor.sh` records exactly which UxPlay commit and libplist
 release are included (see `Sources/AirPlayCore/uxplay/VERSION` and
-`Sources/AirPlayCore/libplist/VERSION`), and refreshes them unmodified.
+`Sources/AirPlayCore/libplist/VERSION`), refreshes them, and reapplies
+Flect's patch.

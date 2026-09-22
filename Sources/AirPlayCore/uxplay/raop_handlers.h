@@ -13,6 +13,7 @@
  *
  *===================================================================
  * modfied by fduncanh 2021-2023
+ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
  */
 
 /* This file should be only included from raop.c as it defines static handler
@@ -165,7 +166,7 @@ raop_handler_info(raop_conn_t *conn,
         goto finished;
     }
 
-    plist_t initial_volume_node = plist_new_real(raop->callbacks.audio_set_client_volume(raop->callbacks.cls)); 
+    plist_t initial_volume_node = plist_new_real(conn->session_callbacks.audio_set_client_volume(conn->session_callbacks.cls)); 
     plist_dict_set_item(res_node, "initialVolume", initial_volume_node);
       
     plist_t audio_latencies_node = plist_new_array();
@@ -267,8 +268,8 @@ raop_handler_pairpinstart(raop_conn_t *conn,
     }
     char pin[6] = { '\0' };
     snprintf(pin, 5, "%04u", pin_4);
-    if (raop->callbacks.display_pin) {
-         raop->callbacks.display_pin(raop->callbacks.cls, pin);
+    if (conn->session_callbacks.display_pin) {
+         conn->session_callbacks.display_pin(conn->session_callbacks.cls, pin);
     }
     logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
 }
@@ -503,11 +504,11 @@ raop_handler_pairverify(raop_conn_t *conn,
         }
         if (register_check) {
             bool registered_client = true;
-            if (raop->callbacks.check_register) {
+            if (conn->session_callbacks.check_register) {
                 const unsigned char *pk = data + 4 + X25519_KEY_SIZE;
                 char *pk64 = NULL;
                 ed25519_pk_to_base64(pk, &pk64);
-                registered_client = raop->callbacks.check_register(raop->callbacks.cls, pk64);
+                registered_client = conn->session_callbacks.check_register(conn->session_callbacks.cls, pk64);
                 free (pk64);
             }
 
@@ -647,7 +648,7 @@ raop_handler_setup(raop_conn_t *conn,
 
 
         /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
-        if (!conn->authenticated && raop->callbacks.passwd) {
+        if (!conn->authenticated && conn->session_callbacks.passwd) {
             size_t pin_len = 4;
             const char *authorization = NULL;
             authorization = http_request_get_header(request, "Authorization");
@@ -659,7 +660,7 @@ raop_handler_setup(raop_conn_t *conn,
                 }
             }
             int len = 0;
-            const char *password = raop->callbacks.passwd(raop->callbacks.cls, &len);
+            const char *password = conn->session_callbacks.passwd(conn->session_callbacks.cls, &len);
             // len = -1 means use a random password for this connection; len = 0 means no password
             if (len == -1 && raop->random_pw && raop->auth_fail_count >= MAX_PW_ATTEMPTS) {
                 // change random_pw after MAX_PW_ATTEMPTS  failed authentication attempts
@@ -685,8 +686,8 @@ raop_handler_setup(raop_conn_t *conn,
                 raop->auth_fail_count = 0;
             }
             if (len == -1 && !authorization && raop->random_pw) {
-                if (raop->callbacks.display_pin) {
-                    raop->callbacks.display_pin(raop->callbacks.cls, raop->random_pw);
+                if (conn->session_callbacks.display_pin) {
+                    conn->session_callbacks.display_pin(conn->session_callbacks.cls, raop->random_pw);
                 }
                 logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
                 raop->auth_fail_count++;
@@ -757,15 +758,15 @@ raop_handler_setup(raop_conn_t *conn,
         plist_get_string_val(req_model_node, &model);  
         plist_t req_name_node = plist_dict_get_item(req_root_node, "name");
         plist_get_string_val(req_name_node, &name);  
-        if (raop->callbacks.report_client_request) {
-            raop->callbacks.report_client_request(raop->callbacks.cls, deviceID, model, name, &admit_client);
+        if (conn->session_callbacks.report_client_request) {
+            conn->session_callbacks.report_client_request(conn->session_callbacks.cls, deviceID, model, name, &admit_client);
         }
-        if (admit_client && deviceID && name && raop->callbacks.register_client) {
+        if (admit_client && deviceID && name && conn->session_callbacks.register_client) {
             char *client_device_id = NULL;
             char *client_pk = NULL;   /* encoded as null-terminated  base64 string, must be freed*/
             get_pairing_session_client_data(conn->session, &client_device_id, &client_pk);
             if (client_pk && !strcmp(deviceID, client_device_id)) { 
-                raop->callbacks.register_client(raop->callbacks.cls, client_device_id, client_pk, name); 
+                conn->session_callbacks.register_client(conn->session_callbacks.cls, client_device_id, client_pk, name); 
                 free (client_pk);
             }
         }
@@ -920,12 +921,12 @@ raop_handler_setup(raop_conn_t *conn,
                        conn->remotelen, conn->zone_id, str, remote);
             free(str);
         }
-        conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote,
+        conn->raop_ntp = raop_ntp_init(raop->logger, &conn->session_callbacks, remote,
                                        conn->remotelen, (unsigned short) timing_rport, &time_protocol);
         raop_ntp_start(conn->raop_ntp, &timing_lport);
-        conn->raop_rtp = raop_rtp_init(raop->logger, &raop->callbacks, conn->raop_ntp,
+        conn->raop_rtp = raop_rtp_init(raop->logger, &conn->session_callbacks, conn->raop_ntp,
                                        remote, conn->remotelen, aeskey, aesiv);
-        conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &raop->callbacks,
+        conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &conn->session_callbacks,
                                                      conn->raop_ntp, remote, conn->remotelen, aeskey);
 
         /* the event port is not used in mirror mode or audio mode */
@@ -996,7 +997,7 @@ raop_handler_setup(raop_conn_t *conn,
                 plist_get_uint_val(req_stream_ct_node, &uint_val);
                 ct = (unsigned char) uint_val;
 
-                if (raop->callbacks.audio_get_format) {
+                if (conn->session_callbacks.audio_get_format) {
                     /* get additional audio format parameters  */
                     uint64_t audioFormat = 0;
                     unsigned short spf = 0;
@@ -1027,7 +1028,7 @@ raop_handler_setup(raop_conn_t *conn,
                         usingScreen = false;
                     }
 
-                    raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+                    conn->session_callbacks.audio_get_format(conn->session_callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
                 }
 
                 if (conn->raop_rtp) {
@@ -1092,8 +1093,8 @@ raop_handler_get_parameter(raop_conn_t *conn,
             /* This is a bit ugly, but seems to be how airport works too */
             if ((datalen - (current - data) >= 8) && !strncmp(current, "volume\r\n", 8)) {
                 char volume[25] = "volume: 0.0\r\n";
-                if (raop->callbacks.audio_set_client_volume) {
-                    snprintf(volume, 25, "volume: %9.6f\r\n", raop->callbacks.audio_set_client_volume(raop->callbacks.cls));
+                if (conn->session_callbacks.audio_set_client_volume) {
+                    snprintf(volume, 25, "volume: %9.6f\r\n", conn->session_callbacks.audio_set_client_volume(conn->session_callbacks.cls));
                 }
                 http_response_add_header(response, "Content-Type", "text/parameters");
                 *response_data = strdup(volume);
@@ -1148,9 +1149,9 @@ raop_handler_set_parameter(raop_conn_t *conn,
                 sscanf(datastr+8, "%f", &vol);
                 if (raop_rtp_is_running(conn->raop_rtp)) {
                     raop_rtp_set_volume(conn->raop_rtp, vol);
-                } else if (raop->callbacks.audio_set_volume) {
+                } else if (conn->session_callbacks.audio_set_volume) {
                     /* set volume in playbin (hls) */
-                    raop->callbacks.audio_set_volume(raop->callbacks.cls, vol);
+                    conn->session_callbacks.audio_set_volume(conn->session_callbacks.cls, vol);
                 }
             } else if ((datalen >= 10) && !strncmp(datastr, "progress: ", 10)) {
                 uint32_t start = 0, curr = 0, end = 0;
@@ -1209,7 +1210,7 @@ raop_handler_feedback(raop_conn_t *conn,
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_DEBUG, "raop_handler_feedback");
     /* register receipt of client's "heartbeat" signal  */
-    raop->callbacks.conn_feedback(raop->callbacks.cls);
+    conn->session_callbacks.conn_feedback(conn->session_callbacks.cls);
 }
 
 static void
@@ -1288,15 +1289,15 @@ raop_handler_teardown(raop_conn_t *conn,
             /* Stop our audio RTP session */
             raop_rtp_stop(conn->raop_rtp);
             /* stop any  coverart rendering */
-            if (raop->callbacks.audio_stop_coverart_rendering) {
-                raop->callbacks.audio_stop_coverart_rendering(raop->callbacks.cls);
+            if (conn->session_callbacks.audio_stop_coverart_rendering) {
+                conn->session_callbacks.audio_stop_coverart_rendering(conn->session_callbacks.cls);
             }
         }
     } else if (teardown_110) {
         if (raop->hls_pending) {
-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_TO_HLS_TEARDOWN);
+            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_TO_HLS_TEARDOWN);
         } else {
-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
         }
         if (conn->raop_rtp_mirror) {
         /* Stop our video RTP session */
@@ -1312,12 +1313,12 @@ raop_handler_teardown(raop_conn_t *conn,
             raop_rtp_mirror_destroy(conn->raop_rtp_mirror);
             conn->raop_rtp_mirror = NULL;
             /*fix for iOS >= 27 (does not send teardown_110 when mirrroring is stopped) */
-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
         }
         /* shut down any HLS connections */
         int hls_count = httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_HLS);
         if (hls_count) {
-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
+            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
         }
     }
 }

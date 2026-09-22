@@ -12,6 +12,7 @@
  *
  *===================================================================
  * modified by fduncanh 2021-23
+ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
  */
 
 #include <stdlib.h>
@@ -92,6 +93,9 @@ struct raop_s {
     /* used in digest authentication */
     char *nonce;
     char *random_pw;
+
+    /* Flect: how many devices may be connected at once */
+    int max_clients;
     unsigned char auth_fail_count;
 
   /* used for setting HLS video language choices */
@@ -121,6 +125,10 @@ struct raop_conn_s {
     char *client_session_id;
     bool authenticated;
     bool have_active_remote;
+
+    /* Flect: this connection's callbacks, with its own session cls */
+    void *session_cls;
+    raop_callbacks_t session_callbacks;
 };
 typedef struct raop_conn_s raop_conn_t;
 
@@ -180,6 +188,10 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->authenticated = false;
 
     conn->have_active_remote = false;
+
+    /* Flect: until identified, a connection reports with the server's cls */
+    memcpy(&conn->session_callbacks, &raop->callbacks, sizeof(raop_callbacks_t));
+    conn->session_cls = NULL;
     
     if (raop->callbacks.conn_init) {
         raop->callbacks.conn_init(raop->callbacks.cls);
@@ -271,7 +283,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
 
     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
         if (cseq || ble) {
-            if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_RAOP)) {
+            if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_RAOP) >= raop->max_clients) {
                 char ipaddr[40] = { '\0' };
                 utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
                 if (httpd_nohold(raop->httpd)) {
@@ -290,6 +302,13 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type RAOP", ptr);
             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_RAOP);
             conn->connection_type = CONNECTION_TYPE_RAOP;
+            /* Flect: give this device its own callback context */
+            if (raop->callbacks.session_open && !conn->session_cls) {
+                conn->session_cls = raop->callbacks.session_open(raop->callbacks.cls, conn);
+                if (conn->session_cls) {
+                    conn->session_callbacks.cls = conn->session_cls;
+                }
+            }
         } else if (client_session_id) {
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type AirPlay", ptr);            
             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_AIRPLAY);
@@ -567,8 +586,13 @@ conn_destroy(void *ptr) {
         raop_ntp_destroy(conn->raop_ntp);
     }
 
-    if (raop->callbacks.video_flush) {
-        raop->callbacks.video_flush(raop->callbacks.cls);
+    if (conn->session_callbacks.video_flush) {
+        conn->session_callbacks.video_flush(conn->session_callbacks.cls);
+    }
+
+    /* Flect: this connection's threads are gone; nothing more will use its cls */
+    if (conn->session_cls && raop->callbacks.session_close) {
+        raop->callbacks.session_close(raop->callbacks.cls, conn->session_cls);
     }
 
     free(conn->local);
@@ -640,6 +664,8 @@ raop_init(raop_callbacks_t *callbacks) {
 
     raop->hls_support = false;
     raop->hls_pending = false;
+
+    raop->max_clients = 1;
     
     raop->nonce = NULL;
 
@@ -845,6 +871,16 @@ raop_stop_httpd(raop_t *raop) {
 
 void raop_remove_known_connections(raop_t * raop) {
     httpd_remove_known_connections(raop->httpd);
+}
+
+void raop_set_max_clients(raop_t *raop, int max_clients) {
+    assert(raop);
+    raop->max_clients = (max_clients > 0 ? max_clients : 1);
+}
+
+void raop_remove_connection(raop_t *raop, void *conn) {
+    assert(raop);
+    httpd_remove_connection_by_user_data(raop->httpd, conn);
 }
 
 void raop_remove_hls_connections(raop_t * raop) {

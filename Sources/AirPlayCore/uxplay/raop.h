@@ -13,6 +13,7 @@
  *
  *===================================================================
  * modified by fduncanh 2021-25
+ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
  */
 
 #ifndef RAOP_H
@@ -110,6 +111,11 @@ struct raop_callbacks_s {
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
     float  (*on_video_playlist_remove) (void *cls);
+    /* Flect: one context per client connection, so several devices can mirror at
+     * once. session_open returns the cls for that connection's callbacks (NULL
+     * keeps the server's cls); session_close is its last callback. */
+    void* (*session_open) (void *cls, void *conn);
+    void  (*session_close) (void *cls, void *session_cls);
 };
 
 typedef struct raop_callbacks_s raop_callbacks_t;
@@ -139,6 +145,10 @@ RAOP_API void raop_stop_httpd(raop_t *raop);
 RAOP_API void raop_set_dnssd(raop_t *raop, dnssd_t *dnssd);
 RAOP_API void raop_destroy(raop_t *raop);
 RAOP_API void raop_remove_known_connections(raop_t * raop);
+/* Flect: allow up to max_clients devices at once (default 1). */
+RAOP_API void raop_set_max_clients(raop_t *raop, int max_clients);
+/* Flect: drop one connection (the conn passed to session_open). */
+RAOP_API void raop_remove_connection(raop_t *raop, void *conn);
 RAOP_API void raop_remove_hls_connections(raop_t * raop);
 RAOP_API void raop_destroy_airplay_video(raop_t *raop, int id);
 RAOP_API void raop_playlist_remove(raop_t *raop, void *airplay_video, float position);

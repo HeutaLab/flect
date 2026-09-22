@@ -1,0 +1,390 @@
+diff --git a/httpd.c b/httpd.c
+index 56a3742..899a29c 100644
+--- a/httpd.c
++++ b/httpd.c
+@@ -13,6 +13,7 @@
+  *
+  *===================================================================
+  * modified by fduncanh 2022-2026
++ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
+  */
+ 
+ #include <stdlib.h>
+@@ -345,6 +346,17 @@ httpd_remove_known_connections(httpd_t *httpd) {
+     }
+ }
+ 
++/* Flect: drop the connection whose user data (raop_conn_t) this is */
++void
++httpd_remove_connection_by_user_data(httpd_t *httpd, void *user_data) {
++    for (int i = 0; i < httpd->max_connections; i++) {
++        http_connection_t *connection = &httpd->connections[i];
++        if (connection->connected && connection->user_data == user_data) {
++            connection->pending_remove = 1;
++        }
++    }
++}
++
+ void
+ httpd_remove_connections_by_type(httpd_t *httpd, connection_type_t type) {
+     for (int i = 0; i < httpd->max_connections; i++) {
+diff --git a/httpd.h b/httpd.h
+index 72cc137..87e31b7 100644
+--- a/httpd.h
++++ b/httpd.h
+@@ -10,6 +10,7 @@
+  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  *  Lesser General Public License for more details.
++ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
+  */
+ 
+ #ifndef HTTPD_H
+@@ -39,6 +40,7 @@ struct httpd_callbacks_s {
+ typedef struct httpd_callbacks_s httpd_callbacks_t;
+ bool httpd_nohold(httpd_t *httpd);
+ void httpd_remove_known_connections(httpd_t *httpd);
++void httpd_remove_connection_by_user_data(httpd_t *httpd, void *user_data);
+ void httpd_remove_connections_by_type(httpd_t *httpd, connection_type_t type);
+ 
+ int httpd_set_connection_type (httpd_t *http, void *user_data, connection_type_t type);
+diff --git a/raop.c b/raop.c
+index b6fc8f3..f81ef7b 100644
+--- a/raop.c
++++ b/raop.c
+@@ -12,6 +12,7 @@
+  *
+  *===================================================================
+  * modified by fduncanh 2021-23
++ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
+  */
+ 
+ #include <stdlib.h>
+@@ -92,6 +93,9 @@ struct raop_s {
+     /* used in digest authentication */
+     char *nonce;
+     char *random_pw;
++
++    /* Flect: how many devices may be connected at once */
++    int max_clients;
+     unsigned char auth_fail_count;
+ 
+   /* used for setting HLS video language choices */
+@@ -121,6 +125,10 @@ struct raop_conn_s {
+     char *client_session_id;
+     bool authenticated;
+     bool have_active_remote;
++
++    /* Flect: this connection's callbacks, with its own session cls */
++    void *session_cls;
++    raop_callbacks_t session_callbacks;
+ };
+ typedef struct raop_conn_s raop_conn_t;
+ 
+@@ -180,6 +188,10 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
+     conn->authenticated = false;
+ 
+     conn->have_active_remote = false;
++
++    /* Flect: until identified, a connection reports with the server's cls */
++    memcpy(&conn->session_callbacks, &raop->callbacks, sizeof(raop_callbacks_t));
++    conn->session_cls = NULL;
+     
+     if (raop->callbacks.conn_init) {
+         raop->callbacks.conn_init(raop->callbacks.cls);
+@@ -271,7 +283,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
+ 
+     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
+         if (cseq || ble) {
+-            if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_RAOP)) {
++            if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_RAOP) >= raop->max_clients) {
+                 char ipaddr[40] = { '\0' };
+                 utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
+                 if (httpd_nohold(raop->httpd)) {
+@@ -290,6 +302,13 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
+             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type RAOP", ptr);
+             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_RAOP);
+             conn->connection_type = CONNECTION_TYPE_RAOP;
++            /* Flect: give this device its own callback context */
++            if (raop->callbacks.session_open && !conn->session_cls) {
++                conn->session_cls = raop->callbacks.session_open(raop->callbacks.cls, conn);
++                if (conn->session_cls) {
++                    conn->session_callbacks.cls = conn->session_cls;
++                }
++            }
+         } else if (client_session_id) {
+             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type AirPlay", ptr);            
+             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_AIRPLAY);
+@@ -567,8 +586,13 @@ conn_destroy(void *ptr) {
+         raop_ntp_destroy(conn->raop_ntp);
+     }
+ 
+-    if (raop->callbacks.video_flush) {
+-        raop->callbacks.video_flush(raop->callbacks.cls);
++    if (conn->session_callbacks.video_flush) {
++        conn->session_callbacks.video_flush(conn->session_callbacks.cls);
++    }
++
++    /* Flect: this connection's threads are gone; nothing more will use its cls */
++    if (conn->session_cls && raop->callbacks.session_close) {
++        raop->callbacks.session_close(raop->callbacks.cls, conn->session_cls);
+     }
+ 
+     free(conn->local);
+@@ -640,6 +664,8 @@ raop_init(raop_callbacks_t *callbacks) {
+ 
+     raop->hls_support = false;
+     raop->hls_pending = false;
++
++    raop->max_clients = 1;
+     
+     raop->nonce = NULL;
+ 
+@@ -847,6 +873,16 @@ void raop_remove_known_connections(raop_t * raop) {
+     httpd_remove_known_connections(raop->httpd);
+ }
+ 
++void raop_set_max_clients(raop_t *raop, int max_clients) {
++    assert(raop);
++    raop->max_clients = (max_clients > 0 ? max_clients : 1);
++}
++
++void raop_remove_connection(raop_t *raop, void *conn) {
++    assert(raop);
++    httpd_remove_connection_by_user_data(raop->httpd, conn);
++}
++
+ void raop_remove_hls_connections(raop_t * raop) {
+     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_HLS);
+     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_PTTH);
+diff --git a/raop.h b/raop.h
+index d659134..efa3119 100644
+--- a/raop.h
++++ b/raop.h
+@@ -13,6 +13,7 @@
+  *
+  *===================================================================
+  * modified by fduncanh 2021-25
++ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
+  */
+ 
+ #ifndef RAOP_H
+@@ -110,6 +111,11 @@ struct raop_callbacks_s {
+     void  (*on_video_stop) (void *cls);
+     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
+     float  (*on_video_playlist_remove) (void *cls);
++    /* Flect: one context per client connection, so several devices can mirror at
++     * once. session_open returns the cls for that connection's callbacks (NULL
++     * keeps the server's cls); session_close is its last callback. */
++    void* (*session_open) (void *cls, void *conn);
++    void  (*session_close) (void *cls, void *session_cls);
+ };
+ 
+ typedef struct raop_callbacks_s raop_callbacks_t;
+@@ -139,6 +145,10 @@ RAOP_API void raop_stop_httpd(raop_t *raop);
+ RAOP_API void raop_set_dnssd(raop_t *raop, dnssd_t *dnssd);
+ RAOP_API void raop_destroy(raop_t *raop);
+ RAOP_API void raop_remove_known_connections(raop_t * raop);
++/* Flect: allow up to max_clients devices at once (default 1). */
++RAOP_API void raop_set_max_clients(raop_t *raop, int max_clients);
++/* Flect: drop one connection (the conn passed to session_open). */
++RAOP_API void raop_remove_connection(raop_t *raop, void *conn);
+ RAOP_API void raop_remove_hls_connections(raop_t * raop);
+ RAOP_API void raop_destroy_airplay_video(raop_t *raop, int id);
+ RAOP_API void raop_playlist_remove(raop_t *raop, void *airplay_video, float position);
+diff --git a/raop_handlers.h b/raop_handlers.h
+index e9e9cdb..c03a997 100644
+--- a/raop_handlers.h
++++ b/raop_handlers.h
+@@ -13,6 +13,7 @@
+  *
+  *===================================================================
+  * modfied by fduncanh 2021-2023
++ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
+  */
+ 
+ /* This file should be only included from raop.c as it defines static handler
+@@ -165,7 +166,7 @@ raop_handler_info(raop_conn_t *conn,
+         goto finished;
+     }
+ 
+-    plist_t initial_volume_node = plist_new_real(raop->callbacks.audio_set_client_volume(raop->callbacks.cls)); 
++    plist_t initial_volume_node = plist_new_real(conn->session_callbacks.audio_set_client_volume(conn->session_callbacks.cls)); 
+     plist_dict_set_item(res_node, "initialVolume", initial_volume_node);
+       
+     plist_t audio_latencies_node = plist_new_array();
+@@ -267,8 +268,8 @@ raop_handler_pairpinstart(raop_conn_t *conn,
+     }
+     char pin[6] = { '\0' };
+     snprintf(pin, 5, "%04u", pin_4);
+-    if (raop->callbacks.display_pin) {
+-         raop->callbacks.display_pin(raop->callbacks.cls, pin);
++    if (conn->session_callbacks.display_pin) {
++         conn->session_callbacks.display_pin(conn->session_callbacks.cls, pin);
+     }
+     logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
+ }
+@@ -503,11 +504,11 @@ raop_handler_pairverify(raop_conn_t *conn,
+         }
+         if (register_check) {
+             bool registered_client = true;
+-            if (raop->callbacks.check_register) {
++            if (conn->session_callbacks.check_register) {
+                 const unsigned char *pk = data + 4 + X25519_KEY_SIZE;
+                 char *pk64 = NULL;
+                 ed25519_pk_to_base64(pk, &pk64);
+-                registered_client = raop->callbacks.check_register(raop->callbacks.cls, pk64);
++                registered_client = conn->session_callbacks.check_register(conn->session_callbacks.cls, pk64);
+                 free (pk64);
+             }
+ 
+@@ -647,7 +648,7 @@ raop_handler_setup(raop_conn_t *conn,
+ 
+ 
+         /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
+-        if (!conn->authenticated && raop->callbacks.passwd) {
++        if (!conn->authenticated && conn->session_callbacks.passwd) {
+             size_t pin_len = 4;
+             const char *authorization = NULL;
+             authorization = http_request_get_header(request, "Authorization");
+@@ -659,7 +660,7 @@ raop_handler_setup(raop_conn_t *conn,
+                 }
+             }
+             int len = 0;
+-            const char *password = raop->callbacks.passwd(raop->callbacks.cls, &len);
++            const char *password = conn->session_callbacks.passwd(conn->session_callbacks.cls, &len);
+             // len = -1 means use a random password for this connection; len = 0 means no password
+             if (len == -1 && raop->random_pw && raop->auth_fail_count >= MAX_PW_ATTEMPTS) {
+                 // change random_pw after MAX_PW_ATTEMPTS  failed authentication attempts
+@@ -685,8 +686,8 @@ raop_handler_setup(raop_conn_t *conn,
+                 raop->auth_fail_count = 0;
+             }
+             if (len == -1 && !authorization && raop->random_pw) {
+-                if (raop->callbacks.display_pin) {
+-                    raop->callbacks.display_pin(raop->callbacks.cls, raop->random_pw);
++                if (conn->session_callbacks.display_pin) {
++                    conn->session_callbacks.display_pin(conn->session_callbacks.cls, raop->random_pw);
+                 }
+                 logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
+                 raop->auth_fail_count++;
+@@ -757,15 +758,15 @@ raop_handler_setup(raop_conn_t *conn,
+         plist_get_string_val(req_model_node, &model);  
+         plist_t req_name_node = plist_dict_get_item(req_root_node, "name");
+         plist_get_string_val(req_name_node, &name);  
+-        if (raop->callbacks.report_client_request) {
+-            raop->callbacks.report_client_request(raop->callbacks.cls, deviceID, model, name, &admit_client);
++        if (conn->session_callbacks.report_client_request) {
++            conn->session_callbacks.report_client_request(conn->session_callbacks.cls, deviceID, model, name, &admit_client);
+         }
+-        if (admit_client && deviceID && name && raop->callbacks.register_client) {
++        if (admit_client && deviceID && name && conn->session_callbacks.register_client) {
+             char *client_device_id = NULL;
+             char *client_pk = NULL;   /* encoded as null-terminated  base64 string, must be freed*/
+             get_pairing_session_client_data(conn->session, &client_device_id, &client_pk);
+             if (client_pk && !strcmp(deviceID, client_device_id)) { 
+-                raop->callbacks.register_client(raop->callbacks.cls, client_device_id, client_pk, name); 
++                conn->session_callbacks.register_client(conn->session_callbacks.cls, client_device_id, client_pk, name); 
+                 free (client_pk);
+             }
+         }
+@@ -920,12 +921,12 @@ raop_handler_setup(raop_conn_t *conn,
+                        conn->remotelen, conn->zone_id, str, remote);
+             free(str);
+         }
+-        conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote,
++        conn->raop_ntp = raop_ntp_init(raop->logger, &conn->session_callbacks, remote,
+                                        conn->remotelen, (unsigned short) timing_rport, &time_protocol);
+         raop_ntp_start(conn->raop_ntp, &timing_lport);
+-        conn->raop_rtp = raop_rtp_init(raop->logger, &raop->callbacks, conn->raop_ntp,
++        conn->raop_rtp = raop_rtp_init(raop->logger, &conn->session_callbacks, conn->raop_ntp,
+                                        remote, conn->remotelen, aeskey, aesiv);
+-        conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &raop->callbacks,
++        conn->raop_rtp_mirror = raop_rtp_mirror_init(raop->logger, &conn->session_callbacks,
+                                                      conn->raop_ntp, remote, conn->remotelen, aeskey);
+ 
+         /* the event port is not used in mirror mode or audio mode */
+@@ -996,7 +997,7 @@ raop_handler_setup(raop_conn_t *conn,
+                 plist_get_uint_val(req_stream_ct_node, &uint_val);
+                 ct = (unsigned char) uint_val;
+ 
+-                if (raop->callbacks.audio_get_format) {
++                if (conn->session_callbacks.audio_get_format) {
+                     /* get additional audio format parameters  */
+                     uint64_t audioFormat = 0;
+                     unsigned short spf = 0;
+@@ -1027,7 +1028,7 @@ raop_handler_setup(raop_conn_t *conn,
+                         usingScreen = false;
+                     }
+ 
+-                    raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
++                    conn->session_callbacks.audio_get_format(conn->session_callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+                 }
+ 
+                 if (conn->raop_rtp) {
+@@ -1092,8 +1093,8 @@ raop_handler_get_parameter(raop_conn_t *conn,
+             /* This is a bit ugly, but seems to be how airport works too */
+             if ((datalen - (current - data) >= 8) && !strncmp(current, "volume\r\n", 8)) {
+                 char volume[25] = "volume: 0.0\r\n";
+-                if (raop->callbacks.audio_set_client_volume) {
+-                    snprintf(volume, 25, "volume: %9.6f\r\n", raop->callbacks.audio_set_client_volume(raop->callbacks.cls));
++                if (conn->session_callbacks.audio_set_client_volume) {
++                    snprintf(volume, 25, "volume: %9.6f\r\n", conn->session_callbacks.audio_set_client_volume(conn->session_callbacks.cls));
+                 }
+                 http_response_add_header(response, "Content-Type", "text/parameters");
+                 *response_data = strdup(volume);
+@@ -1148,9 +1149,9 @@ raop_handler_set_parameter(raop_conn_t *conn,
+                 sscanf(datastr+8, "%f", &vol);
+                 if (raop_rtp_is_running(conn->raop_rtp)) {
+                     raop_rtp_set_volume(conn->raop_rtp, vol);
+-                } else if (raop->callbacks.audio_set_volume) {
++                } else if (conn->session_callbacks.audio_set_volume) {
+                     /* set volume in playbin (hls) */
+-                    raop->callbacks.audio_set_volume(raop->callbacks.cls, vol);
++                    conn->session_callbacks.audio_set_volume(conn->session_callbacks.cls, vol);
+                 }
+             } else if ((datalen >= 10) && !strncmp(datastr, "progress: ", 10)) {
+                 uint32_t start = 0, curr = 0, end = 0;
+@@ -1209,7 +1210,7 @@ raop_handler_feedback(raop_conn_t *conn,
+     raop_t *raop = conn->raop;
+     logger_log(raop->logger, LOGGER_DEBUG, "raop_handler_feedback");
+     /* register receipt of client's "heartbeat" signal  */
+-    raop->callbacks.conn_feedback(raop->callbacks.cls);
++    conn->session_callbacks.conn_feedback(conn->session_callbacks.cls);
+ }
+ 
+ static void
+@@ -1288,15 +1289,15 @@ raop_handler_teardown(raop_conn_t *conn,
+             /* Stop our audio RTP session */
+             raop_rtp_stop(conn->raop_rtp);
+             /* stop any  coverart rendering */
+-            if (raop->callbacks.audio_stop_coverart_rendering) {
+-                raop->callbacks.audio_stop_coverart_rendering(raop->callbacks.cls);
++            if (conn->session_callbacks.audio_stop_coverart_rendering) {
++                conn->session_callbacks.audio_stop_coverart_rendering(conn->session_callbacks.cls);
+             }
+         }
+     } else if (teardown_110) {
+         if (raop->hls_pending) {
+-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_TO_HLS_TEARDOWN);
++            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_TO_HLS_TEARDOWN);
+         } else {
+-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
++            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+         }
+         if (conn->raop_rtp_mirror) {
+         /* Stop our video RTP session */
+@@ -1312,12 +1313,12 @@ raop_handler_teardown(raop_conn_t *conn,
+             raop_rtp_mirror_destroy(conn->raop_rtp_mirror);
+             conn->raop_rtp_mirror = NULL;
+             /*fix for iOS >= 27 (does not send teardown_110 when mirrroring is stopped) */
+-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
++            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+         }
+         /* shut down any HLS connections */
+         int hls_count = httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_HLS);
+         if (hls_count) {
+-            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
++            conn->session_callbacks.video_reset(conn->session_callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
+         }
+     }
+ }

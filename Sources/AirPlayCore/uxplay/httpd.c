@@ -13,6 +13,7 @@
  *
  *===================================================================
  * modified by fduncanh 2022-2026
+ * modified for Flect 2026-09-22: several clients at once (see "Flect:" comments)
  */
 
 #include <stdlib.h>
@@ -342,6 +343,17 @@ httpd_remove_known_connections(httpd_t *httpd) {
             continue;
         }
         connection->pending_remove = 1;
+    }
+}
+
+/* Flect: drop the connection whose user data (raop_conn_t) this is */
+void
+httpd_remove_connection_by_user_data(httpd_t *httpd, void *user_data) {
+    for (int i = 0; i < httpd->max_connections; i++) {
+        http_connection_t *connection = &httpd->connections[i];
+        if (connection->connected && connection->user_data == user_data) {
+            connection->pending_remove = 1;
+        }
     }
 }
 

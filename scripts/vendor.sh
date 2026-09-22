@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copies the parts of UxPlay and libplist that Flect builds on into
-# Sources/AirPlayCore. The copies are kept unmodified so they can be
-# refreshed by re-running this script with a newer commit or version.
+# Sources/AirPlayCore, then applies Flect's patches (patches/). Re-run it
+# with a newer commit or version to refresh the copies.
 #
 # Usage: scripts/vendor.sh [uxplay-commit]
 set -euo pipefail
@@ -29,6 +29,14 @@ cp "$LIB"/llhttp/*.[ch] "$LIB/llhttp/LICENSE-MIT" "$DEST/uxplay/llhttp/"
 cp "$LIB"/dns_sd/*.[ch] "$DEST/uxplay/dns_sd/"
 cp "$WORK/uxplay/LICENSE" "$DEST/uxplay/LICENSE"
 echo "$UXPLAY_REPO $UXPLAY_COMMIT" > "$DEST/uxplay/VERSION"
+
+# Flect's changes to the library, kept as patches so updates stay easy.
+for PATCH in "$ROOT"/patches/uxplay-*.patch; do
+  [[ -e "$PATCH" ]] || continue
+  echo "Applying $(basename "$PATCH")"
+  patch -p1 --quiet --forward -d "$DEST/uxplay" < "$PATCH"
+  echo "patched with $(basename "$PATCH")" >> "$DEST/uxplay/VERSION"
+done
 
 echo "Fetching libplist $LIBPLIST_VERSION"
 curl -fsSL -o "$WORK/libplist.tar.bz2" \
