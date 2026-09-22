@@ -55,11 +55,11 @@ struct AudioPipelineTests {
 
     @Test("AirPlay volume maps to gain like UxPlay does")
     func volume() {
-        #expect(MirrorSession.gain(forDecibels: 0) == 1)
-        #expect(MirrorSession.gain(forDecibels: -144) == 0)
-        #expect(MirrorSession.gain(forDecibels: -30) == 0)
-        #expect(abs(MirrorSession.gain(forDecibels: -6) - 0.501) < 0.001)
-        #expect(MirrorSession.gain(forDecibels: 3) == 1)
+        #expect(MirrorHub.gain(forDecibels: 0) == 1)
+        #expect(MirrorHub.gain(forDecibels: -144) == 0)
+        #expect(MirrorHub.gain(forDecibels: -30) == 0)
+        #expect(abs(MirrorHub.gain(forDecibels: -6) - 0.501) < 0.001)
+        #expect(MirrorHub.gain(forDecibels: 3) == 1)
     }
 
     private func decodeAll(_ packets: [Data], with decoder: AudioStreamDecoder) -> (frames: Int, rms: Float, left: [Float]) {

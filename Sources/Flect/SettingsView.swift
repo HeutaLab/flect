@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.name) private var name = ""
     @AppStorage(SettingsKey.requireCode) private var requireCode = false
     @AppStorage(SettingsKey.playAudio) private var playAudio = true
+    @AppStorage(SettingsKey.maxDevices) private var maxDevices = 4
     @State private var draftName = ""
 
     var body: some View {
@@ -28,7 +29,22 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("iPads on screen at once", selection: $maxDevices) {
+                    Text("One at a time").tag(1)
+                    ForEach([2, 3, 4, 6], id: \.self) { count in
+                        Text("\(count)").tag(count)
+                    }
+                }
+            } footer: {
+                Text("More than one appear side by side. Click one to enlarge it.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Play the iPad's sound on this Mac", isOn: $playAudio)
+            } footer: {
+                Text("With several iPads, you hear the enlarged one, or else the first to connect.")
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -37,6 +53,7 @@ struct SettingsView: View {
         .onAppear { draftName = name }
         .onDisappear(perform: applyName)
         .onChange(of: requireCode) { controller.restart() }
+        .onChange(of: maxDevices) { controller.restart() }
         .onChange(of: playAudio) { controller.setPlaysAudio(playAudio) }
     }
 

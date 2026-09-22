@@ -18,9 +18,13 @@ struct FlectApp: App {
         .defaultSize(width: 1024, height: 720)
         .commands {
             CommandMenu("Receiver") {
-                Button("Disconnect iPad") { controller.disconnect() }
+                Button("Show All") { controller.showAll() }
+                    .keyboardShortcut("0", modifiers: .command)
+                    .disabled(controller.focusedTile == nil)
+                Button("Disconnect All") { controller.disconnectAll() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
                     .disabled(controller.connections == 0)
+                Divider()
                 Button("Restart Receiver") { controller.restart() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
             }

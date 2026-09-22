@@ -26,12 +26,17 @@ final class VideoLayerView: NSView {
         displayLayer
     }
 
+    /// Clicks go through to SwiftUI, which handles them for the tile.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
     func clear() {
         renderer.flush(removingDisplayedImage: true, completionHandler: nil)
     }
 }
 
-/// Puts the app's one video view into SwiftUI.
+/// Puts a device's video view into SwiftUI.
 struct VideoSurface: NSViewRepresentable {
     let view: VideoLayerView
 

@@ -4,6 +4,9 @@ import AirPlayCore
 import CoreGraphics
 import Foundation
 
+/// One connected device, for as long as it stays connected. Never reused.
+public typealias SessionID = UInt32
+
 /// Who may mirror to this Mac.
 public enum ReceiverAccess: Sendable, Equatable {
     /// Anyone on the network.
@@ -32,6 +35,8 @@ public struct ReceiverConfiguration: Sendable {
     /// Where the pairing key is kept. `nil` derives it from `deviceID`.
     public var keyFile: URL?
     public var access: ReceiverAccess = .open
+    /// How many devices may be connected at once.
+    public var maxClients = 1
     public var allowH265 = false
     /// The largest picture a device should send.
     public var maxWidth = 1920
@@ -49,30 +54,33 @@ public struct ReceiverConfiguration: Sendable {
 }
 
 /// Everything the receiver reports. All methods are called on the
-/// receiver's own network threads; buffers are only valid during the call.
+/// receiver's own network threads, concurrently when several devices are
+/// connected; buffers are only valid during the call.
 public protocol AirPlayReceiverDelegate: AnyObject, Sendable {
     func receiverLog(_ message: String, level: ReceiverLogLevel)
-    /// Return false to turn the device away.
-    func receiverShouldAdmit(deviceID: String, model: String, name: String) -> Bool
     func receiverConnectionsChanged(open: Int)
-    /// The connection dropped; the owner should call `resetConnections()`.
-    func receiverConnectionLost(reason: Int)
-    func receiverHeartbeat()
-    func receiverShowCode(_ code: String)
+
+    /// Return false to turn the device away.
+    func receiverShouldAdmit(_ session: SessionID, deviceID: String, model: String, name: String) -> Bool
+    /// The device's connection closed. No more calls for this session follow.
+    func receiverSessionEnded(_ session: SessionID)
+    /// The connection dropped unexpectedly; the owner should disconnect the session.
+    func receiverConnectionLost(_ session: SessionID, reason: Int)
+    func receiverHeartbeat(_ session: SessionID)
+    func receiverShowCode(_ code: String, session: SessionID)
 
     /// Return false to refuse the codec.
-    func receiverAcceptsVideo(isH265: Bool) -> Bool
-    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, isH265: Bool)
-    func receiverVideoSize(_ size: CGSize)
-    func receiverVideoPaused(_ paused: Bool)
-    func receiverVideoStopped()
-    func receiverVideoFlush()
+    func receiverAcceptsVideo(_ session: SessionID, isH265: Bool) -> Bool
+    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session: SessionID, isH265: Bool)
+    func receiverVideoSize(_ size: CGSize, session: SessionID)
+    func receiverVideoPaused(_ paused: Bool, session: SessionID)
+    func receiverVideoStopped(_ session: SessionID)
 
-    func receiverAudioFormat(_ format: AirPlayAudioFormat)
-    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat)
+    func receiverAudioFormat(_ format: AirPlayAudioFormat, session: SessionID)
+    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat, session: SessionID)
     /// AirPlay volume: -30 dB (quietest) to 0 dB (full); -144 dB is mute.
-    func receiverAudioVolume(decibels: Float)
-    func receiverAudioFlush()
+    func receiverAudioVolume(decibels: Float, session: SessionID)
+    func receiverAudioFlush(_ session: SessionID)
 }
 
 public enum AirPlayReceiverError: LocalizedError {
@@ -147,6 +155,7 @@ public final class AirPlayReceiver: @unchecked Sendable {
                 password = strdup(secret)
                 config.password = UnsafePointer(password)
             }
+            config.max_clients = Int32(configuration.maxClients)
             config.allow_h265 = configuration.allowH265
             config.width = Int32(configuration.maxWidth)
             config.height = Int32(configuration.maxHeight)
@@ -181,12 +190,20 @@ public final class AirPlayReceiver: @unchecked Sendable {
         }
     }
 
-    /// Drops every connection (for example, a stuck or unwanted device)
-    /// and keeps listening on the same port.
+    /// Drops every connection and keeps listening on the same port.
     public func resetConnections() {
         lifecycle.withLock {
             if let handle {
                 flect_receiver_reset_connections(handle)
+            }
+        }
+    }
+
+    /// Drops one device (within about a second); the others carry on.
+    public func disconnect(session: SessionID) {
+        lifecycle.withLock {
+            if let handle {
+                flect_receiver_disconnect(handle, session)
             }
         }
     }
@@ -221,60 +238,61 @@ extension AirPlayReceiver {
             let level = ReceiverLogLevel(rawValue: level) ?? (level < 3 ? .error : .debug)
             delegate(context)?.receiverLog(string(message), level: level)
         }
-        callbacks.client_request = { context, deviceID, model, name, admit in
+        callbacks.connections_changed = { context, open in
+            delegate(context)?.receiverConnectionsChanged(open: Int(open))
+        }
+
+        callbacks.client_request = { context, session, deviceID, model, name, admit in
             guard let delegate = delegate(context) else { return }
             admit?.pointee = delegate.receiverShouldAdmit(
-                deviceID: string(deviceID), model: string(model), name: string(name))
+                session, deviceID: string(deviceID), model: string(model), name: string(name))
         }
-        callbacks.connection_opened = { context, open in
-            delegate(context)?.receiverConnectionsChanged(open: Int(open))
+        callbacks.session_ended = { context, session in
+            delegate(context)?.receiverSessionEnded(session)
         }
-        callbacks.connection_closed = { context, open in
-            delegate(context)?.receiverConnectionsChanged(open: Int(open))
+        callbacks.connection_lost = { context, session, reason in
+            delegate(context)?.receiverConnectionLost(session, reason: Int(reason))
         }
-        callbacks.connection_lost = { context, reason in
-            delegate(context)?.receiverConnectionLost(reason: Int(reason))
+        callbacks.heartbeat = { context, session in
+            delegate(context)?.receiverHeartbeat(session)
         }
-        callbacks.heartbeat = { context in
-            delegate(context)?.receiverHeartbeat()
-        }
-        callbacks.show_code = { context, code in
-            delegate(context)?.receiverShowCode(string(code))
+        callbacks.show_code = { context, session, code in
+            delegate(context)?.receiverShowCode(string(code), session: session)
         }
 
-        callbacks.video_codec = { context, isH265 in
-            (delegate(context)?.receiverAcceptsVideo(isH265: isH265) ?? false) ? 0 : -1
+        callbacks.video_codec = { context, session, isH265 in
+            (delegate(context)?.receiverAcceptsVideo(session, isH265: isH265) ?? false) ? 0 : -1
         }
-        callbacks.video_frame = { context, data, length, _, isH265, _ in
+        callbacks.video_frame = { context, session, data, length, _, isH265, _ in
             guard let data, length > 0 else { return }
-            delegate(context)?.receiverVideoFrame(UnsafeRawBufferPointer(start: data, count: length), isH265: isH265)
+            delegate(context)?.receiverVideoFrame(
+                UnsafeRawBufferPointer(start: data, count: length), session: session, isH265: isH265)
         }
-        callbacks.video_size = { context, sourceWidth, sourceHeight, _, _ in
-            delegate(context)?.receiverVideoSize(CGSize(width: CGFloat(sourceWidth), height: CGFloat(sourceHeight)))
+        callbacks.video_size = { context, session, sourceWidth, sourceHeight, _, _ in
+            delegate(context)?.receiverVideoSize(
+                CGSize(width: CGFloat(sourceWidth), height: CGFloat(sourceHeight)), session: session)
         }
-        callbacks.video_paused = { context, paused in
-            delegate(context)?.receiverVideoPaused(paused)
+        callbacks.video_paused = { context, session, paused in
+            delegate(context)?.receiverVideoPaused(paused, session: session)
         }
-        callbacks.video_stopped = { context in
-            delegate(context)?.receiverVideoStopped()
-        }
-        callbacks.video_flush = { context in
-            delegate(context)?.receiverVideoFlush()
+        callbacks.video_stopped = { context, session in
+            delegate(context)?.receiverVideoStopped(session)
         }
 
-        callbacks.audio_format = { context, type, _, _, _ in
+        callbacks.audio_format = { context, session, type, _, _, _ in
             guard let format = AirPlayAudioFormat(rawValue: Int(type)) else { return }
-            delegate(context)?.receiverAudioFormat(format)
+            delegate(context)?.receiverAudioFormat(format, session: session)
         }
-        callbacks.audio_packet = { context, data, length, type, _ in
+        callbacks.audio_packet = { context, session, data, length, type, _ in
             guard let data, length > 0, let format = AirPlayAudioFormat(rawValue: Int(type)) else { return }
-            delegate(context)?.receiverAudioPacket(UnsafeRawBufferPointer(start: data, count: length), format: format)
+            delegate(context)?.receiverAudioPacket(
+                UnsafeRawBufferPointer(start: data, count: length), format: format, session: session)
         }
-        callbacks.audio_volume = { context, volume in
-            delegate(context)?.receiverAudioVolume(decibels: volume)
+        callbacks.audio_volume = { context, session, volume in
+            delegate(context)?.receiverAudioVolume(decibels: volume, session: session)
         }
-        callbacks.audio_flush = { context in
-            delegate(context)?.receiverAudioFlush()
+        callbacks.audio_flush = { context, session in
+            delegate(context)?.receiverAudioFlush(session)
         }
         return callbacks
     }

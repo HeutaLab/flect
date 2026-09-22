@@ -9,6 +9,38 @@ enum SettingsKey {
     static let name = "receiverName"
     static let requireCode = "requireCode"
     static let playAudio = "playAudio"
+    static let maxDevices = "maxDevices"
+}
+
+/// A device showing on screen.
+@MainActor
+@Observable
+final class DeviceTile: Identifiable {
+    let id: SessionID
+    let name: String
+    var isPaused = false
+    /// The picture's size, once known.
+    var videoSize: CGSize?
+    /// The tile's own video layer, kept for as long as the device shows
+    /// (see `VideoOutput`).
+    @ObservationIgnored let view = VideoLayerView()
+
+    init(id: SessionID, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    var aspectRatio: CGFloat {
+        guard let size = videoSize, size.width > 0, size.height > 0 else { return 4.0 / 3.0 }
+        return size.width / size.height
+    }
+}
+
+/// A device waiting for its user to type the code on screen.
+struct CodeRequest: Equatable {
+    let session: SessionID
+    let code: String
+    let deviceName: String?
 }
 
 /// Runs the AirPlay receiver and publishes what the window should show.
@@ -24,23 +56,26 @@ final class ReceiverController {
     private(set) var status: Status = .starting
     private(set) var receiverName = ""
     private(set) var requiresCode = false
-    /// The device connecting or connected, as it names itself.
-    private(set) var deviceName: String?
-    /// A code the device is asking its user to type.
-    private(set) var code: String?
-    private(set) var isMirroring = false
-    private(set) var isPaused = false
+    private(set) var maxDevices = 1
+    /// Devices showing, in the order they started.
+    private(set) var tiles: [DeviceTile] = []
+    /// The device the teacher has enlarged, if any.
+    private(set) var focusedTile: SessionID?
+    /// A device that is connecting but not showing yet.
+    private(set) var connectingName: String?
+    private(set) var codeRequest: CodeRequest?
     private(set) var connections = 0
 
-    /// One video layer for the life of the app (see `VideoOutput`).
-    @ObservationIgnored let videoView = VideoLayerView()
+    var isMirroring: Bool { !tiles.isEmpty }
 
     @ObservationIgnored private var receiver: AirPlayReceiver?
-    @ObservationIgnored private var session: MirrorSession?
-    /// Start, stop and reset block while network threads wind down.
+    @ObservationIgnored private var hub: MirrorHub?
+    @ObservationIgnored private var deviceNames: [SessionID: String] = [:]
+    @ObservationIgnored private var connectingSession: SessionID?
+    /// Start, stop and disconnect block while network threads wind down.
     @ObservationIgnored private let queue = DispatchQueue(label: "org.flect.receiver")
     @ObservationIgnored private var watchdog: Timer?
-    @ObservationIgnored private var lastReset = Date.distantPast
+    @ObservationIgnored private var disconnectRequested: [SessionID: Date] = [:]
     @ObservationIgnored private var awakeActivity: NSObjectProtocol?
     @ObservationIgnored private let identity = ReceiverIdentity.load()
     @ObservationIgnored private let logger = Logger(subsystem: "org.flect.Flect", category: "receiver")
@@ -51,14 +86,16 @@ final class ReceiverController {
         let name = ReceiverName.sanitized(defaults.string(forKey: SettingsKey.name) ?? "",
                                           fallback: ReceiverName.suggested)
         requiresCode = defaults.bool(forKey: SettingsKey.requireCode)
+        maxDevices = max(1, defaults.object(forKey: SettingsKey.maxDevices) as? Int ?? 4)
         receiverName = name
         status = .starting
 
         var configuration = ReceiverConfiguration(name: name, deviceID: identity.deviceID, keyFile: identity.keyFile)
         configuration.access = requiresCode ? .screenCode : .open
+        configuration.maxClients = maxDevices
 
         let logger = logger
-        let session = MirrorSession(
+        let hub = MirrorHub(
             playsAudio: defaults.object(forKey: SettingsKey.playAudio) as? Bool ?? true,
             onEvent: { [weak self] event in
                 // The main queue keeps events in order.
@@ -69,17 +106,17 @@ final class ReceiverController {
             onLog: { message, level in
                 logger.log(level: level.osLogType, "\(message, privacy: .public)")
             })
-        session.video.attach(videoView.renderer)
 
         let receiver = AirPlayReceiver(configuration: configuration)
         self.receiver = receiver
-        self.session = session
+        self.hub = hub
         let identity = identity
+        let maxDevices = maxDevices
         queue.async { [weak self] in
             do {
-                try receiver.start(delegate: session)
+                try receiver.start(delegate: hub)
                 identity.protectKeyFile()
-                logger.notice("Receiver \"\(name, privacy: .public)\" listening on port \(receiver.port)")
+                logger.notice("Receiver \"\(name, privacy: .public)\" listening on port \(receiver.port), up to \(maxDevices) devices")
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let self, self.receiver === receiver else { return }
@@ -93,7 +130,7 @@ final class ReceiverController {
                     MainActor.assumeIsolated {
                         guard let self, self.receiver === receiver else { return }
                         self.receiver = nil
-                        self.session = nil
+                        self.hub = nil
                         self.status = .failed(reason)
                     }
                 }
@@ -105,12 +142,10 @@ final class ReceiverController {
     func stop() {
         watchdog?.invalidate()
         watchdog = nil
-        session?.video.attach(nil)
         let receiver = receiver
         self.receiver = nil
-        session = nil
+        hub = nil
         queue.async { receiver?.stop() }
-        videoView.clear()
         resetViewState()
         status = .starting
     }
@@ -120,68 +155,138 @@ final class ReceiverController {
         start()
     }
 
-    /// Ends the current mirroring session (the iPad sees it stop).
-    func disconnect() {
+    /// Ends one device's mirroring (it sees it stop); the others carry on.
+    func disconnect(_ session: SessionID) {
         guard let receiver else { return }
-        lastReset = Date()
+        disconnectRequested[session] = Date()
+        queue.async { receiver.disconnect(session: session) }
+    }
+
+    func disconnectAll() {
+        guard let receiver else { return }
         queue.async { receiver.resetConnections() }
     }
 
+    /// Enlarges a device to fill the window, or goes back to showing all.
+    /// Sound comes from the enlarged device.
+    func toggleFocus(_ session: SessionID) {
+        guard tiles.count > 1 || focusedTile != nil else { return }
+        setFocus(focusedTile == session ? nil : session)
+    }
+
+    func showAll() {
+        setFocus(nil)
+    }
+
     func setPlaysAudio(_ plays: Bool) {
-        session?.playsAudio = plays
+        hub?.playsAudio = plays
+    }
+
+    private func setFocus(_ session: SessionID?) {
+        focusedTile = session
+        hub?.focus(session)
     }
 
     // MARK: Events
 
     private func handle(_ event: MirrorEvent) {
         switch event {
-        case .deviceConnecting(let name, _):
-            deviceName = name.isEmpty ? nil : name
-        case .showCode(let code):
-            self.code = code
         case .connectionsChanged(let count):
             connections = count
-            if count == 0 {
-                resetViewState()
+        case .deviceConnecting(let id, let name, _):
+            let display = name.isEmpty ? nil : name
+            deviceNames[id] = display
+            if tile(id) == nil {
+                connectingSession = id
+                connectingName = display ?? "a device"
             }
-        case .videoStarted:
-            code = nil
-            isMirroring = true
-            isPaused = false
-            keepDisplayAwake(true)
-        case .videoSize:
-            break
-        case .videoPaused(let paused):
-            isPaused = paused
-        case .videoStopped:
-            isMirroring = false
-            isPaused = false
+        case .showCode(let id, let code):
+            codeRequest = CodeRequest(session: id, code: code, deviceName: deviceNames[id])
+        case .videoStarted(let id):
+            addTile(id)
+        case .videoSize(let id, let size):
+            tile(id)?.videoSize = size
+        case .videoPaused(let id, let paused):
+            tile(id)?.isPaused = paused
+        case .videoStopped(let id):
+            removeTile(id)
+        case .sessionEnded(let id):
+            removeTile(id)
+            deviceNames[id] = nil
+            disconnectRequested[id] = nil
+            if codeRequest?.session == id {
+                codeRequest = nil
+            }
+            if connectingSession == id {
+                connectingSession = nil
+                connectingName = nil
+            }
+        case .connectionLost(let id):
+            logger.notice("Lost the connection to \(self.deviceNames[id] ?? "a device", privacy: .public)")
+            disconnect(id)
+        }
+    }
+
+    private func tile(_ id: SessionID) -> DeviceTile? {
+        tiles.first { $0.id == id }
+    }
+
+    private func addTile(_ id: SessionID) {
+        guard tile(id) == nil, let output = hub?.videoOutput(for: id) else { return }
+        let tile = DeviceTile(id: id, name: deviceNames[id] ?? "iPad")
+        output.attach(tile.view.renderer)
+        tiles.append(tile)
+        if codeRequest?.session == id {
+            codeRequest = nil
+        }
+        if connectingSession == id {
+            connectingSession = nil
+            connectingName = nil
+        }
+        keepDisplayAwake(true)
+    }
+
+    private func removeTile(_ id: SessionID) {
+        guard let index = tiles.firstIndex(where: { $0.id == id }) else { return }
+        let tile = tiles.remove(at: index)
+        hub?.videoOutput(for: id)?.attach(nil)
+        tile.view.clear()
+        if focusedTile == id {
+            setFocus(nil)
+        }
+        if tiles.isEmpty {
             keepDisplayAwake(false)
-        case .connectionLost:
-            logger.notice("Lost the connection to \(self.deviceName ?? "the device", privacy: .public)")
-            disconnect()
         }
     }
 
     private func resetViewState() {
-        deviceName = nil
-        code = nil
-        isMirroring = false
-        isPaused = false
+        for tile in tiles {
+            tile.view.clear()
+        }
+        tiles = []
+        focusedTile = nil
+        codeRequest = nil
+        connectingName = nil
+        connectingSession = nil
+        deviceNames = [:]
+        disconnectRequested = [:]
         connections = 0
         keepDisplayAwake(false)
     }
 
     /// Devices check in every two seconds. One that has gone quiet for 15
-    /// (Wi-Fi dropped, battery died) would otherwise block the receiver.
+    /// (Wi-Fi dropped, battery died) would otherwise hold its place.
     private func startWatchdog() {
         watchdog?.invalidate()
         watchdog = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let session = self.session else { return }
-                if session.isStalled(timeout: 15), Date().timeIntervalSince(self.lastReset) > 15 {
-                    self.logger.notice("Device stopped responding; freeing the receiver")
-                    self.disconnect()
+                guard let self, let hub = self.hub else { return }
+                for id in hub.stalledSessions(timeout: 15) {
+                    if let asked = self.disconnectRequested[id], Date().timeIntervalSince(asked) < 15 {
+                        continue
+                    }
+                    self.logger.notice("\(self.deviceNames[id] ?? "A device", privacy: .public) stopped responding; freeing its place")
+                    self.disconnect(id)
                 }
             }
         }

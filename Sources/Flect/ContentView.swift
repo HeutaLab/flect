@@ -11,14 +11,17 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.black
-            VideoSurface(view: controller.videoView)
 
-            if let code = controller.code {
-                CodeView(code: code, deviceName: controller.deviceName)
-            } else if !controller.isMirroring {
-                WaitingView()
+            if controller.isMirroring {
+                MirrorGrid(controlsVisible: controlsVisible)
+                MirroringBar(visible: controlsVisible)
+                if let request = controller.codeRequest {
+                    CodeCard(request: request)
+                }
+            } else if let request = controller.codeRequest {
+                CodeView(request: request)
             } else {
-                MirroringOverlay(controlsVisible: controlsVisible)
+                WaitingView()
             }
         }
         .onContinuousHover { phase in
@@ -37,7 +40,7 @@ struct ContentView: View {
     }
 
     /// Controls appear when the pointer moves and fade out when it rests,
-    /// taking the pointer with them, so the class sees only the iPad.
+    /// taking the pointer with them, so the class sees only the devices.
     private func showControlsBriefly() {
         controlsVisible = true
         hideControls?.cancel()
@@ -50,7 +53,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Waiting for an iPad
+// MARK: - Waiting for a device
 
 private struct WaitingView: View {
     @Environment(ReceiverController.self) private var controller
@@ -75,6 +78,12 @@ private struct WaitingView: View {
                 Step(number: 3, text: "Choose “\(controller.receiverName)”.")
                 if controller.requiresCode {
                     Step(number: 4, text: "Type the code that appears on this screen.")
+                }
+                if controller.maxDevices > 1 {
+                    Text("Up to \(controller.maxDevices) iPads can show side by side. Click one to enlarge it.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             }
             .padding(24)
@@ -101,7 +110,7 @@ private struct StatusLine: View {
         case .ready:
             HStack(spacing: 8) {
                 Circle().fill(.green).frame(width: 9, height: 9)
-                if let device = controller.deviceName {
+                if let device = controller.connectingName {
                     Text("Connecting to \(device)…")
                 } else {
                     Text("Ready")
@@ -139,19 +148,11 @@ private struct Step: View {
 // MARK: - Code
 
 private struct CodeView: View {
-    let code: String
-    let deviceName: String?
+    let request: CodeRequest
 
     var body: some View {
         VStack(spacing: 24) {
-            Text(deviceName.map { "Type this code on “\($0)”" } ?? "Type this code on the iPad")
-                .font(.system(size: 30, weight: .medium))
-                .multilineTextAlignment(.center)
-            Text(code)
-                .font(.system(size: 140, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .kerning(24)
-                .accessibilityLabel(code.map(String.init).joined(separator: " "))
+            CodeText(request: request, size: 140)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -159,21 +160,63 @@ private struct CodeView: View {
     }
 }
 
-// MARK: - Mirroring
-
-private struct MirroringOverlay: View {
-    @Environment(ReceiverController.self) private var controller
-    let controlsVisible: Bool
+/// The code over devices already showing.
+private struct CodeCard: View {
+    let request: CodeRequest
 
     var body: some View {
+        VStack(spacing: 16) {
+            CodeText(request: request, size: 96)
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .shadow(radius: 24)
+    }
+}
+
+private struct CodeText: View {
+    let request: CodeRequest
+    let size: CGFloat
+
+    var body: some View {
+        Text(request.deviceName.map { "Type this code on “\($0)”" } ?? "Type this code on the iPad")
+            .font(.system(size: size * 0.22, weight: .medium))
+            .multilineTextAlignment(.center)
+        Text(request.code)
+            .font(.system(size: size, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .kerning(size / 6)
+            .accessibilityLabel(request.code.map(String.init).joined(separator: " "))
+    }
+}
+
+// MARK: - Mirroring
+
+private struct MirroringBar: View {
+    @Environment(ReceiverController.self) private var controller
+    let visible: Bool
+
+    var body: some View {
+        let tiles = controller.tiles
         VStack {
             HStack(spacing: 12) {
-                Label(controller.deviceName ?? "iPad", systemImage: "ipad.landscape")
+                Label(tiles.count == 1 ? tiles[0].name : "\(tiles.count) devices",
+                      systemImage: tiles.count == 1 ? "ipad.landscape" : "rectangle.split.2x1")
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 20)
-                Button("Disconnect", systemImage: "xmark.circle") {
-                    controller.disconnect()
+                if controller.focusedTile != nil {
+                    Button("Show All", systemImage: "square.grid.2x2") {
+                        controller.showAll()
+                    }
+                }
+                Button(tiles.count > 1 ? "Disconnect All" : "Disconnect", systemImage: "xmark.circle") {
+                    if tiles.count == 1 {
+                        controller.disconnect(tiles[0].id)
+                    } else {
+                        controller.disconnectAll()
+                    }
                 }
                 Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") {
                     NSApp.keyWindow?.toggleFullScreen(nil)
@@ -183,18 +226,11 @@ private struct MirroringOverlay: View {
             .padding(.vertical, 10)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(12)
-            .opacity(controlsVisible ? 1 : 0)
-            .animation(.easeInOut(duration: 0.2), value: controlsVisible)
 
             Spacer()
-
-            if controller.isPaused {
-                Label("Paused on the iPad", systemImage: "pause.circle")
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(24)
-            }
         }
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .animation(.easeInOut(duration: 0.2), value: visible)
     }
 }

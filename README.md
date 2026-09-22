@@ -9,13 +9,14 @@ nothing, and pay what it's worth if it helps your school.
 ## What works (0.1)
 
 - iPad and iPhone screen mirroring, decoded in hardware by macOS itself
-- The iPad's sound (AAC-ELD while mirroring, Apple Lossless for music)
+- Up to six devices side by side (four by default); click one to enlarge it
+- The iPad's sound (AAC-ELD while mirroring, Apple Lossless for music). With several devices you hear the enlarged one, or else the first to connect
 - An optional four-digit code, shown big on screen, so only people in the room can connect
 - Full screen, and controls that fade away so the class sees only the iPad
 - The display stays awake while mirroring
 - One self-contained app: nothing else to install
 
-Tested so far with an iPhone (AirPlay 980.77) mirroring to a Mac on macOS 27; iPad testing is next.
+Tested with four devices mirroring to one Mac at once, on macOS 27.
 Flect needs macOS 14 or later.
 
 ## Using it
@@ -24,8 +25,13 @@ Flect needs macOS 14 or later.
 2. On the iPad, open Control Centre, tap **Screen Mirroring**, and choose **Flect – *your Mac's name***.
 3. Move the pointer over the picture for **Disconnect** and **Full Screen**.
 
+When several iPads mirror at once they appear side by side, each labelled
+with its name. Click one to enlarge it (and hear it); click again, or press
+⌘0, to show them all. Hover over an iPad to disconnect just that one.
+
 **Flect → Settings** changes the name iPads see (a room name works well),
-turns on the on-screen code, and turns the iPad's sound on or off.
+how many can show at once, the on-screen code, and whether the iPad's sound
+plays on the Mac.
 
 To show the iPad on the class TV, mirror the Mac to the Apple TV as usual
 (Control Centre on the Mac → Screen Mirroring), and put Flect in full screen.
@@ -89,7 +95,7 @@ the .pkg and notarize both files.
 
 | Folder | What's there |
 |---|---|
-| `Sources/AirPlayCore/uxplay` | [UxPlay](https://github.com/FDH2/UxPlay)'s AirPlay protocol library, unmodified |
+| `Sources/AirPlayCore/uxplay` | [UxPlay](https://github.com/FDH2/UxPlay)'s AirPlay protocol library, plus the patch in `patches/` |
 | `Sources/AirPlayCore/libplist` | libplist 2.7.0, unmodified |
 | `Sources/AirPlayCore/bridge` | `flect_receiver.h`: the small C interface Flect uses |
 | `Sources/FlectKit` | Receiver, video (VideoToolbox) and audio (AudioToolbox, AVAudioEngine) |
@@ -97,12 +103,14 @@ the .pkg and notarize both files.
 
 UxPlay does the hard part: the AirPlay protocol, pairing and decryption.
 Flect swaps UxPlay's GStreamer windows for macOS's own decoders and builds a
-Mac app around them. `scripts/vendor.sh` refreshes the UxPlay and libplist
-copies; see `THIRD_PARTY_NOTICES.md` for credits and licences.
+Mac app around them. UxPlay serves one device at a time, so
+`patches/uxplay-multiple-clients.patch` lets several connect at once, each
+with its own callbacks. `scripts/vendor.sh` refreshes the UxPlay and
+libplist copies and reapplies the patch; see `THIRD_PARTY_NOTICES.md` for
+credits and licences.
 
 ## Next
 
-- Several iPads side by side, to compare students' work
 - The teacher approves each iPad before it appears
 - Signed, notarized downloads (needs an Apple Developer ID)
 - Plain-English network diagnostics
