@@ -7,8 +7,8 @@
 #
 # Environment:
 #   FLECT_BUNDLE_ID       bundle identifier (default org.flect.Flect)
-#   FLECT_VERSION         marketing version (default 0.1.0)
-#   FLECT_BUILD           build number (default 1)
+#   FLECT_VERSION         marketing version (default: the VERSION file)
+#   FLECT_BUILD           build number (default: the number of commits)
 #   FLECT_SIGN_IDENTITY   codesign identity, e.g. "Developer ID Application: …"
 #                         (default "-": ad hoc, which runs but isn't trusted by
 #                         Gatekeeper when downloaded)
@@ -25,13 +25,13 @@ for ARG in "$@"; do
   esac
 done
 
-BUNDLE_ID=${FLECT_BUNDLE_ID:-org.flect.Flect}
-VERSION=${FLECT_VERSION:-0.1.0}
-BUILD=${FLECT_BUILD:-1}
-SIGN_IDENTITY=${FLECT_SIGN_IDENTITY:--}
-
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+
+BUNDLE_ID=${FLECT_BUNDLE_ID:-org.flect.Flect}
+VERSION=${FLECT_VERSION:-$(tr -d '[:space:]' < VERSION)}
+BUILD=${FLECT_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}
+SIGN_IDENTITY=${FLECT_SIGN_IDENTITY:--}
 
 if [[ ${#ARCH_FLAGS[@]} -gt 0 && -z "${FLECT_OPENSSL_PREFIX:-}" && ! -f build/openssl/lib/libcrypto.a ]]; then
   echo "A universal build needs a universal OpenSSL: run scripts/build-openssl.sh first." >&2
@@ -58,4 +58,4 @@ fi
 # it isn't sandboxed, and everything it uses is linked in statically.
 codesign --force --options runtime --timestamp=none --sign "$SIGN_IDENTITY" "$APP"
 
-echo "Built $APP ($(lipo -archs "$APP/Contents/MacOS/Flect"))"
+echo "Built $APP $VERSION ($BUILD), $(lipo -archs "$APP/Contents/MacOS/Flect")"

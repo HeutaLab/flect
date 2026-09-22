@@ -72,6 +72,20 @@ struct ReceiverTests {
         #expect(try replacement.request(Self.info).starts(with: Data("RTSP/1.0 200".utf8)))
     }
 
+    @Test("Twelve devices fit at once")
+    func twelveAtOnce() throws {
+        let hub = MirrorHub(onEvent: { _ in })
+        let receiver = try startReceiver(name: "Flect Twelve", maxClients: 12, delegate: hub)
+        defer { receiver.stop() }
+
+        let devices = try (0..<12).map { _ in try LoopbackConnection(port: receiver.port) }
+        for device in devices {
+            #expect(try device.request(Self.info).starts(with: Data("RTSP/1.0 200".utf8)))
+        }
+        let thirteenth = try LoopbackConnection(port: receiver.port)
+        #expect(try thirteenth.request(Self.info).starts(with: Data("RTSP/1.0 409".utf8)))
+    }
+
     @Test("Stops and starts again cleanly")
     func restarts() throws {
         let hub = MirrorHub(onEvent: { _ in })

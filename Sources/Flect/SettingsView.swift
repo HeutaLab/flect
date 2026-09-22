@@ -31,12 +31,12 @@ struct SettingsView: View {
             Section {
                 Picker("iPads on screen at once", selection: $maxDevices) {
                     Text("One at a time").tag(1)
-                    ForEach([2, 3, 4, 6], id: \.self) { count in
+                    ForEach([2, 3, 4, 6, 9, 12], id: \.self) { count in
                         Text("\(count)").tag(count)
                     }
                 }
             } footer: {
-                Text("More than one appear side by side. Click one to enlarge it.")
+                Text("More than one appear side by side; click one to enlarge it. Above four, each iPad sends a smaller picture so the Wi-Fi keeps up.")
                     .foregroundStyle(.secondary)
             }
 

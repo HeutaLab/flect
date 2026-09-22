@@ -93,6 +93,10 @@ final class ReceiverController {
         var configuration = ReceiverConfiguration(name: name, deviceID: identity.deviceID, keyFile: identity.keyFile)
         configuration.access = requiresCode ? .screenCode : .open
         configuration.maxClients = maxDevices
+        let picture = ReceiverConfiguration.picture(forDevices: maxDevices)
+        configuration.maxWidth = picture.width
+        configuration.maxHeight = picture.height
+        configuration.maxFramesPerSecond = picture.framesPerSecond
 
         let logger = logger
         let hub = MirrorHub(

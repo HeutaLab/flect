@@ -31,4 +31,13 @@ public enum TileGrid {
         }
         return best
     }
+
+    /// Where a picture of this shape sits in a tile: as large as fits,
+    /// centred, as the video layer draws it.
+    public static func pictureFrame(aspectRatio: CGFloat, in size: CGSize) -> CGRect {
+        guard aspectRatio > 0, size.width > 0, size.height > 0 else { return CGRect(origin: .zero, size: size) }
+        let width = min(size.width, size.height * aspectRatio)
+        let height = width / aspectRatio
+        return CGRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height)
+    }
 }

@@ -44,9 +44,28 @@ private struct DeviceTileView: View {
     let isFocused: Bool
 
     var body: some View {
+        GeometryReader { geometry in
+            // The video layer letterboxes the picture; labels go on the picture itself.
+            let picture = TileGrid.pictureFrame(aspectRatio: tile.aspectRatio, in: geometry.size)
+            ZStack(alignment: .topLeading) {
+                Color.black
+                VideoSurface(view: tile.view)
+                pictureOverlays
+                    .frame(width: picture.width, height: picture.height)
+                    .offset(x: picture.minX, y: picture.minY)
+            }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            controller.toggleFocus(tile.id)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(tile.name)
+    }
+
+    private var pictureOverlays: some View {
         ZStack {
-            Color.black
-            VideoSurface(view: tile.view)
             if tile.isPaused {
                 Label("Paused on the device", systemImage: "pause.circle")
                     .padding(.horizontal, 14)
@@ -54,6 +73,7 @@ private struct DeviceTileView: View {
                     .background(.regularMaterial, in: Capsule())
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomLeading) {
             if showsName {
                 Text(tile.name)
@@ -62,7 +82,7 @@ private struct DeviceTileView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(.regularMaterial, in: Capsule())
-                    .padding(10)
+                    .padding(8)
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -80,16 +100,9 @@ private struct DeviceTileView: View {
                 }
                 .labelStyle(.iconOnly)
                 .controlSize(.large)
-                .padding(10)
+                .padding(8)
             }
         }
-        .clipped()
-        .contentShape(Rectangle())
-        .onTapGesture {
-            controller.toggleFocus(tile.id)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(tile.name)
     }
 }
 

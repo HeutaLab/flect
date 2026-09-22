@@ -11,13 +11,13 @@
 # "Installing on school Macs" in the README.
 set -euo pipefail
 
-export FLECT_VERSION=${FLECT_VERSION:-0.1.0}
-export FLECT_BUNDLE_ID=${FLECT_BUNDLE_ID:-org.flect.Flect}
-
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
-if [[ ! -f build/openssl/lib/libcrypto.a ]]; then
+export FLECT_VERSION=${FLECT_VERSION:-$(tr -d '[:space:]' < VERSION)}
+export FLECT_BUNDLE_ID=${FLECT_BUNDLE_ID:-org.flect.Flect}
+
+if [[ -z "${FLECT_OPENSSL_PREFIX:-}" && ! -f build/openssl/lib/libcrypto.a ]]; then
   scripts/build-openssl.sh
 fi
 scripts/build-app.sh release --universal

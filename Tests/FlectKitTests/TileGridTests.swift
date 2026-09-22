@@ -32,6 +32,32 @@ struct TileGridTests {
         #expect(TileGrid.best(count: 4, in: window, aspectRatios: Array(repeating: iPhone, count: 4), spacing: 6) == (4, 1))
     }
 
+    @Test("Twelve iPads make a 4 by 3 grid")
+    func twelve() {
+        #expect(TileGrid.best(count: 12, in: window, aspectRatios: Array(repeating: iPad, count: 12), spacing: 6) == (4, 3))
+    }
+
+    @Test("A picture sits centred at the largest size that fits")
+    func pictureFrame() {
+        let tile = CGSize(width: 800, height: 500)
+        let landscape = TileGrid.pictureFrame(aspectRatio: iPad, in: tile)
+        #expect(landscape.height == 500)
+        #expect(abs(landscape.width - 666.667) < 0.001)
+        #expect(abs(landscape.minX - 66.667) < 0.001)
+        let portrait = TileGrid.pictureFrame(aspectRatio: 3.0 / 4.0, in: tile)
+        #expect(portrait.height == 500)
+        #expect(abs(portrait.midX - 400) < 0.001)
+        #expect(TileGrid.pictureFrame(aspectRatio: iPad, in: .zero) == .zero)
+    }
+
+    @Test("More devices are asked for smaller pictures")
+    func pictureSizes() {
+        #expect(ReceiverConfiguration.picture(forDevices: 1) == (1920, 1080, 60))
+        #expect(ReceiverConfiguration.picture(forDevices: 4) == (1920, 1080, 60))
+        #expect(ReceiverConfiguration.picture(forDevices: 6) == (1280, 720, 30))
+        #expect(ReceiverConfiguration.picture(forDevices: 12) == (960, 540, 30))
+    }
+
     @Test("A tall window stacks iPads")
     func tallWindow() {
         let tall = CGSize(width: 800, height: 1200)

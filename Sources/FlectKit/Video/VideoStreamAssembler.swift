@@ -23,8 +23,9 @@ final class VideoStreamAssembler {
     struct Frame {
         let sampleBuffer: CMSampleBuffer
         let isKeyframe: Bool
-        /// Set when this frame starts a new resolution (e.g. the iPad rotated).
-        let newDimensions: CMVideoDimensions?
+        /// Set when this frame starts a new picture size (e.g. the iPad
+        /// rotated): the size as shown, after any cropping.
+        let newSize: CGSize?
     }
 
     private(set) var codec: VideoCodec = .h264
@@ -66,16 +67,16 @@ final class VideoStreamAssembler {
             }
         }
 
-        var newDimensions: CMVideoDimensions?
+        var newSize: CGSize?
         if !incomingSets.isEmpty {
             let merged = parameterSets.merging(incomingSets) { _, new in new }
             if merged != parameterSets || formatDescription == nil {
                 parameterSets = merged
                 if let description = try makeFormatDescription() {
-                    let old = formatDescription.map(CMVideoFormatDescriptionGetDimensions)
-                    let dimensions = CMVideoFormatDescriptionGetDimensions(description)
-                    if old?.width != dimensions.width || old?.height != dimensions.height {
-                        newDimensions = dimensions
+                    let old = formatDescription.map(Self.displaySize)
+                    let size = Self.displaySize(description)
+                    if old != size {
+                        newSize = size
                     }
                     formatDescription = description
                 }
@@ -131,7 +132,14 @@ final class VideoStreamAssembler {
             attachment[kCMSampleAttachmentKey_DependsOnOthers] = !isKeyframe
         }
 
-        return Frame(sampleBuffer: sampleBuffer, isKeyframe: isKeyframe, newDimensions: newDimensions)
+        return Frame(sampleBuffer: sampleBuffer, isKeyframe: isKeyframe, newSize: newSize)
+    }
+
+    /// The picture as displayed: the encoder may pad it (1080 lines coded
+    /// as 1088, say) and crop the padding off again.
+    private static func displaySize(_ description: CMVideoFormatDescription) -> CGSize {
+        CMVideoFormatDescriptionGetPresentationDimensions(
+            description, usePixelAspectRatio: true, useCleanAperture: true)
     }
 
     private func makeFormatDescription() throws -> CMVideoFormatDescription? {

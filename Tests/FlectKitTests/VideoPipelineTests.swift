@@ -46,21 +46,20 @@ struct VideoPipelineTests {
         assembler.reset(codec: codec)
         let decoder = try FrameDecoder()
         var keyframes = 0
-        var sizeReports: [CMVideoDimensions] = []
+        var sizeReports: [CGSize] = []
 
         for annexB in encoded {
             let frame = try annexB.withUnsafeBytes { try assembler.assemble($0) }
             let assembled = try #require(frame)
             if assembled.isKeyframe { keyframes += 1 }
-            if let size = assembled.newDimensions { sizeReports.append(size) }
+            if let size = assembled.newSize { sizeReports.append(size) }
             try decoder.decode(assembled.sampleBuffer)
         }
         decoder.finish()
 
         #expect(keyframes >= 1)
         #expect(sizeReports.count == 1)
-        #expect(sizeReports.first?.width == Int32(width))
-        #expect(sizeReports.first?.height == Int32(height))
+        #expect(sizeReports.first == CGSize(width: width, height: height))
         #expect(decoder.decodedFrames == frameCount)
         #expect(decoder.lastSize == CGSize(width: width, height: height))
         #expect(decoder.errors == 0)

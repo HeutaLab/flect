@@ -63,11 +63,7 @@ final class DeviceSession: @unchecked Sendable {
         }
         guard let frame else { return FrameResult() }
         video.enqueue(frame.sampleBuffer, isKeyframe: frame.isKeyframe)
-        var result = FrameResult(started: started)
-        if let dimensions = frame.newDimensions {
-            result.newSize = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
-        }
-        return result
+        return FrameResult(started: started, newSize: frame.newSize)
     }
 
     /// Returns whether video was running.

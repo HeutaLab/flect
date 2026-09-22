@@ -51,6 +51,17 @@ public struct ReceiverConfiguration: Sendable {
         self.deviceID = deviceID
         self.keyFile = keyFile
     }
+
+    /// The picture to ask each device for when this many may show at once.
+    /// More devices get smaller pictures, so the Wi-Fi keeps up and each
+    /// is still sharp at the size it appears.
+    public static func picture(forDevices count: Int) -> (width: Int, height: Int, framesPerSecond: Int) {
+        switch count {
+        case ...4: (1920, 1080, 60)
+        case 5...6: (1280, 720, 30)
+        default: (960, 540, 30)
+        }
+    }
 }
 
 /// Everything the receiver reports. All methods are called on the
