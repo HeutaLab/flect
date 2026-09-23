@@ -73,13 +73,23 @@ To show the iPad on the class TV, mirror the Mac to the Apple TV as usual
 
 ### If the iPad can't see Flect
 
-- The iPad and the Mac must be on the same network. Many school networks keep
-  devices apart, or block Bonjour between network segments. Ask IT to allow
-  Bonjour/mDNS between them: Apple TVs need exactly the same thing.
-- Check **System Settings → Privacy & Security → Local Network**: Flect must be on.
-- If the Mac appears twice, the other entry is macOS's own AirPlay Receiver
-  (**System Settings → General → AirDrop & Handoff**). You can switch it off
-  to avoid confusion.
+Flect can check for you: click **"The iPad can't see Flect?"** on the main
+screen, or choose **Receiver ▸ Check the Network** (⇧⌘N). It says in plain
+English what it found, with buttons that open the right settings page, and
+**Copy Details for IT** puts a summary on the clipboard to paste into an
+email.
+
+It looks at whether the Mac is on a network at all, whether Flect's own
+announcement is visible (if it isn't, either macOS is blocking Flect from
+the local network or this network doesn't pass Bonjour), whether the name
+has been taken and numbered, whether the Mac's firewall is on, whether
+macOS's own AirPlay Receiver is adding a second entry to the list, and
+which other AirPlay devices can be seen.
+
+The one thing it can't see from here is the iPad's side: if your school
+keeps iPads and staff Macs on separate networks, they won't find Flect
+however healthy this Mac looks. Ask IT to allow Bonjour/mDNS between them:
+Apple TVs need exactly the same thing.
 
 ## Installing on school Macs
 

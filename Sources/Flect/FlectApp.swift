@@ -18,6 +18,9 @@ struct FlectApp: App {
         .defaultSize(width: 1024, height: 720)
         .commands {
             CommandMenu("Receiver") {
+                Button("Check the Network…") { controller.showsNetworkCheck = true }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Divider()
                 Button("Let All Waiting iPads On") { controller.approveAll() }
                     .keyboardShortcut("a", modifiers: [.command, .option])
                     .disabled(controller.approvals.isEmpty)

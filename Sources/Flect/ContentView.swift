@@ -46,6 +46,11 @@ struct ContentView: View {
         .onChange(of: controller.isMirroring) {
             controlsVisible = false
         }
+        .sheet(isPresented: Binding(get: { controller.showsNetworkCheck },
+                                    set: { controller.showsNetworkCheck = $0 })) {
+            NetworkCheckView()
+                .environment(controller)
+        }
     }
 
     /// Controls appear when the pointer moves and fade out when it rests,
@@ -94,6 +99,11 @@ private struct WaitingView: View {
                         .foregroundStyle(.secondary)
                         .padding(.top, 4)
                 }
+                Button("The iPad can't see Flect?") {
+                    controller.showsNetworkCheck = true
+                }
+                .buttonStyle(.link)
+                .padding(.top, 6)
             }
             .padding(24)
             .frame(maxWidth: 520, alignment: .leading)

@@ -90,6 +90,11 @@ final class ReceiverController {
     /// Whether any device's sound plays on this Mac.
     private(set) var soundEnabled = true
     private(set) var savedFileNotice: SavedFileNotice?
+    /// The network check: what it found, and whether it's still looking.
+    private(set) var networkFindings: [NetworkFinding] = []
+    private(set) var isCheckingNetwork = false
+    var showsNetworkCheck = false
+    @ObservationIgnored private var networkSummary = ""
 
     /// Snapshots need macOS 14.4 or later.
     var canSnapshot: Bool {
@@ -373,6 +378,32 @@ final class ReceiverController {
         if let target = commandTarget {
             snapshot(target)
         }
+    }
+
+    /// Looks at the network and works out why iPads might not see Flect.
+    func checkNetwork() {
+        guard !isCheckingNetwork else { return }
+        isCheckingNetwork = true
+        let name = receiverName
+        let port = receiver?.port ?? 0
+        let running = receiver != nil && status == .ready
+        Task { [weak self] in
+            let facts = await NetworkCheck.gather(receiverName: name, port: port, receiverRunning: running)
+            let findings = NetworkCheck.findings(for: facts)
+            let summary = NetworkCheck.summary(for: facts, findings: findings)
+            await MainActor.run {
+                guard let self else { return }
+                self.networkFindings = findings
+                self.networkSummary = summary
+                self.isCheckingNetwork = false
+            }
+        }
+    }
+
+    func copyNetworkSummary() {
+        guard !networkSummary.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(networkSummary, forType: .string)
     }
 
     func revealSavedFile() {
