@@ -156,9 +156,8 @@ credits and licences.
 
 ## Next
 
-- The teacher approves each iPad before it appears
-- Signed, notarized downloads (needs an Apple Developer ID)
-- Plain-English network diagnostics
+- Signed, notarized downloads, so teachers can open Flect without an
+  administrator password (needs an Apple Developer ID)
 
 ## Supporting Flect
 
