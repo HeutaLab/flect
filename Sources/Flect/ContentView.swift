@@ -24,6 +24,10 @@ struct ContentView: View {
                 WaitingView()
             }
 
+            if !controller.approvals.isEmpty {
+                ApprovalRequests()
+            }
+
             if let notice = controller.savedFileNotice {
                 SavedFileNoticeView(notice: notice)
             }
@@ -192,6 +196,41 @@ private struct CodeText: View {
             .monospacedDigit()
             .kerning(size / 6)
             .accessibilityLabel(request.code.map(String.init).joined(separator: " "))
+    }
+}
+
+// MARK: - Waiting to be let on
+
+private struct ApprovalRequests: View {
+    @Environment(ReceiverController.self) private var controller
+
+    var body: some View {
+        VStack {
+            VStack(spacing: 10) {
+                ForEach(controller.approvals.waiting) { request in
+                    HStack(spacing: 14) {
+                        Image(systemName: "ipad.landscape")
+                            .font(.title2)
+                            .foregroundStyle(.tint)
+                        Text("\(request.name) wants to show")
+                            .font(.headline)
+                            .lineLimit(1)
+                        Spacer(minLength: 16)
+                        Button("Not now") { controller.decline(request.session) }
+                        Button("Show") { controller.approve(request.session) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: 540)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .shadow(radius: 14)
+                }
+            }
+            .padding(.top, controller.isMirroring ? 72 : 24)
+
+            Spacer()
+        }
     }
 }
 

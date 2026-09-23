@@ -14,6 +14,7 @@ nothing, and pay what it's worth if it helps your school.
 - Silence one iPad, or all sound, with a click
 - Save what an iPad is showing as a PNG in Pictures ▸ Flect (needs macOS 14.4)
 - Record an iPad to a QuickTime movie in Movies ▸ Flect, with its sound
+- Ask before an iPad appears: a card lets you show it or turn it away, and one you've let on comes straight back if it drops out
 - An optional four-digit code, shown big on screen, so only people in the room can connect
 - Full screen, and controls that fade away so the class sees only the iPad
 - The display stays awake while mirroring
@@ -53,8 +54,13 @@ a data-protection matter for your school, so check your policy before you
 make a habit of it.
 
 **Flect → Settings** changes the name iPads see (a room name works well),
-how many can show at once, the on-screen code, and whether the iPad's sound
-plays on the Mac.
+how many can show at once, whether iPads wait for your approval, the
+on-screen code, and whether the iPad's sound plays on the Mac.
+
+With approval on, a card appears when an iPad connects and nothing of it
+reaches the screen or the speakers until you click **Show**. Its picture is
+held ready in the meantime, so it appears the instant you do. **Not now**
+disconnects it, and it can ask again.
 
 To show the iPad on the class TV, mirror the Mac to the Apple TV as usual
 (Control Centre on the Mac → Screen Mirroring), and put Flect in full screen.

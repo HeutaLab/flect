@@ -10,6 +10,7 @@ enum SettingsKey {
     static let requireCode = "requireCode"
     static let playAudio = "playAudio"
     static let maxDevices = "maxDevices"
+    static let requireApproval = "requireApproval"
 }
 
 /// A device showing on screen.
@@ -66,6 +67,10 @@ final class ReceiverController {
     private(set) var status: Status = .starting
     private(set) var receiverName = ""
     private(set) var requiresCode = false
+    /// Devices wait for the teacher before they reach the screen.
+    private(set) var requiresApproval = false
+    /// Who is waiting, and who has been let on.
+    private(set) var approvals = ApprovalQueue()
     private(set) var maxDevices = 1
     /// Devices showing, in the order they started.
     private(set) var tiles: [DeviceTile] = []
@@ -89,7 +94,10 @@ final class ReceiverController {
     @ObservationIgnored private var receiver: AirPlayReceiver?
     @ObservationIgnored private var hub: MirrorHub?
     @ObservationIgnored private var deviceNames: [SessionID: String] = [:]
+    @ObservationIgnored private var deviceIDs: [SessionID: String] = [:]
     @ObservationIgnored private var connectingSession: SessionID?
+    /// Sessions whose picture is ready but held back, awaiting approval.
+    @ObservationIgnored private var heldBack: Set<SessionID> = []
     /// Start, stop and disconnect block while network threads wind down.
     @ObservationIgnored private let queue = DispatchQueue(label: "org.flect.receiver")
     @ObservationIgnored private var watchdog: Timer?
@@ -105,6 +113,7 @@ final class ReceiverController {
         let name = ReceiverName.sanitized(defaults.string(forKey: SettingsKey.name) ?? "",
                                           fallback: ReceiverName.suggested)
         requiresCode = defaults.bool(forKey: SettingsKey.requireCode)
+        requiresApproval = defaults.bool(forKey: SettingsKey.requireApproval)
         soundEnabled = defaults.object(forKey: SettingsKey.playAudio) as? Bool ?? true
         maxDevices = max(1, defaults.object(forKey: SettingsKey.maxDevices) as? Int ?? 4)
         receiverName = name
@@ -200,6 +209,39 @@ final class ReceiverController {
 
     func showAll() {
         setFocus(nil)
+    }
+
+    /// Turning approval off lets everyone already waiting straight on.
+    func setRequiresApproval(_ required: Bool) {
+        requiresApproval = required
+        UserDefaults.standard.set(required, forKey: SettingsKey.requireApproval)
+        if required {
+            // Devices already on screen stay on screen.
+            for tile in tiles {
+                approvals.request(session: tile.id, deviceID: deviceIDs[tile.id] ?? "", name: tile.name, model: "")
+                approvals.approve(tile.id)
+            }
+        } else {
+            for request in approvals.waiting {
+                approve(request.session)
+            }
+        }
+    }
+
+    /// Lets a waiting device on screen, and remembers it for this session.
+    func approve(_ session: SessionID) {
+        approvals.approve(session)
+        hub?.setMuted(false, for: session)
+        if heldBack.remove(session) != nil {
+            addTile(session)
+        }
+    }
+
+    /// Turns a waiting device away; it can ask again.
+    func decline(_ session: SessionID) {
+        approvals.decline(session)
+        heldBack.remove(session)
+        disconnect(session)
     }
 
     func setPlaysAudio(_ plays: Bool) {
@@ -301,9 +343,16 @@ final class ReceiverController {
         switch event {
         case .connectionsChanged(let count):
             connections = count
-        case .deviceConnecting(let id, let name, _):
+        case .deviceConnecting(let id, let deviceID, let name, let model):
             let display = name.isEmpty ? nil : name
             deviceNames[id] = display
+            deviceIDs[id] = deviceID
+            if requiresApproval,
+               approvals.request(session: id, deviceID: deviceID,
+                                 name: display ?? "A device", model: model) == .waiting {
+                // Not heard either, until it is let on.
+                hub?.setMuted(true, for: id)
+            }
             if tile(id) == nil {
                 connectingSession = id
                 connectingName = display ?? "a device"
@@ -311,16 +360,24 @@ final class ReceiverController {
         case .showCode(let id, let code):
             codeRequest = CodeRequest(session: id, code: code, deviceName: deviceNames[id])
         case .videoStarted(let id):
-            addTile(id)
+            if requiresApproval, !approvals.isApproved(id) {
+                heldBack.insert(id)  // its frames wait in the pipeline
+            } else {
+                addTile(id)
+            }
         case .videoSize(let id, let size):
             tile(id)?.videoSize = size
         case .videoPaused(let id, let paused):
             tile(id)?.isPaused = paused
         case .videoStopped(let id):
             removeTile(id)
+            heldBack.remove(id)
         case .sessionEnded(let id):
             removeTile(id)
+            approvals.forget(id)
+            heldBack.remove(id)
             deviceNames[id] = nil
+            deviceIDs[id] = nil
             disconnectRequested[id] = nil
             if codeRequest?.session == id {
                 codeRequest = nil
@@ -388,6 +445,9 @@ final class ReceiverController {
         connectingName = nil
         connectingSession = nil
         deviceNames = [:]
+        deviceIDs = [:]
+        approvals.removeAll()
+        heldBack = []
         disconnectRequested = [:]
         connections = 0
         savedFileNotice = nil

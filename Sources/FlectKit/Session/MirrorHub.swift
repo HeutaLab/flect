@@ -7,7 +7,7 @@ import Foundation
 public enum MirrorEvent: Sendable, Equatable {
     case connectionsChanged(Int)
     /// A device asked to start mirroring or playing.
-    case deviceConnecting(SessionID, name: String, model: String)
+    case deviceConnecting(SessionID, deviceID: String, name: String, model: String)
     /// The device is asking its user for this code.
     case showCode(SessionID, String)
     case videoStarted(SessionID)
@@ -192,7 +192,9 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
 
     public func receiverShouldAdmit(_ session: SessionID, deviceID: String, model: String, name: String) -> Bool {
         self.session(session)?.noteSignOfLife()
-        onEvent(.deviceConnecting(session, name: name, model: model))
+        onEvent(.deviceConnecting(session, deviceID: deviceID, name: name, model: model))
+        // Always admitted here: whether it reaches the screen is the app's
+        // decision, so the library's shared thread is never held up.
         return true
     }
 

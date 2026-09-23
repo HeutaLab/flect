@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(ReceiverController.self) private var controller
     @AppStorage(SettingsKey.name) private var name = ""
     @AppStorage(SettingsKey.requireCode) private var requireCode = false
+    @AppStorage(SettingsKey.requireApproval) private var requireApproval = false
     @AppStorage(SettingsKey.playAudio) private var playAudio = true
     @AppStorage(SettingsKey.maxDevices) private var maxDevices = 4
     @State private var draftName = ""
@@ -18,6 +19,13 @@ struct SettingsView: View {
                     .onSubmit(applyName)
             } footer: {
                 Text("What iPads see in their Screen Mirroring list. A room name works well, like “Room 12”. Press Return to apply.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Ask before showing an iPad", isOn: $requireApproval)
+            } footer: {
+                Text("A card appears when an iPad connects, and it only reaches the screen when you say so. An iPad you have let on comes straight back if it drops out.")
                     .foregroundStyle(.secondary)
             }
 
@@ -53,6 +61,7 @@ struct SettingsView: View {
         .onAppear { draftName = name }
         .onDisappear(perform: applyName)
         .onChange(of: requireCode) { controller.restart() }
+        .onChange(of: requireApproval) { controller.setRequiresApproval(requireApproval) }
         .onChange(of: maxDevices) { controller.restart() }
         .onChange(of: playAudio) { controller.setPlaysAudio(playAudio) }
     }
