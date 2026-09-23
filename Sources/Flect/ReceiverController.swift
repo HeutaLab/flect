@@ -19,6 +19,8 @@ final class DeviceTile: Identifiable {
     let id: SessionID
     let name: String
     var isPaused = false
+    /// Silenced on its own, whether or not it is the device being heard.
+    var isMuted = false
     /// The picture's size, once known.
     var videoSize: CGSize?
     /// The tile's own video layer, kept for as long as the device shows
@@ -34,6 +36,12 @@ final class DeviceTile: Identifiable {
         guard let size = videoSize, size.width > 0, size.height > 0 else { return 4.0 / 3.0 }
         return size.width / size.height
     }
+}
+
+/// What happened to the last snapshot, shown briefly in the window.
+struct SnapshotNotice: Equatable {
+    let message: String
+    let url: URL?
 }
 
 /// A device waiting for its user to type the code on screen.
@@ -65,6 +73,14 @@ final class ReceiverController {
     private(set) var connectingName: String?
     private(set) var codeRequest: CodeRequest?
     private(set) var connections = 0
+    /// Whether any device's sound plays on this Mac.
+    private(set) var soundEnabled = true
+    private(set) var snapshotNotice: SnapshotNotice?
+
+    /// Snapshots need macOS 14.4 or later.
+    var canSnapshot: Bool {
+        if #available(macOS 14.4, *) { true } else { false }
+    }
 
     var isMirroring: Bool { !tiles.isEmpty }
 
@@ -77,6 +93,7 @@ final class ReceiverController {
     @ObservationIgnored private var watchdog: Timer?
     @ObservationIgnored private var disconnectRequested: [SessionID: Date] = [:]
     @ObservationIgnored private var awakeActivity: NSObjectProtocol?
+    @ObservationIgnored private var noticeTimer: Task<Void, Never>?
     @ObservationIgnored private let identity = ReceiverIdentity.load()
     @ObservationIgnored private let logger = Logger(subsystem: "org.flect.Flect", category: "receiver")
 
@@ -86,6 +103,7 @@ final class ReceiverController {
         let name = ReceiverName.sanitized(defaults.string(forKey: SettingsKey.name) ?? "",
                                           fallback: ReceiverName.suggested)
         requiresCode = defaults.bool(forKey: SettingsKey.requireCode)
+        soundEnabled = defaults.object(forKey: SettingsKey.playAudio) as? Bool ?? true
         maxDevices = max(1, defaults.object(forKey: SettingsKey.maxDevices) as? Int ?? 4)
         receiverName = name
         status = .starting
@@ -100,7 +118,7 @@ final class ReceiverController {
 
         let logger = logger
         let hub = MirrorHub(
-            playsAudio: defaults.object(forKey: SettingsKey.playAudio) as? Bool ?? true,
+            playsAudio: soundEnabled,
             onEvent: { [weak self] event in
                 // The main queue keeps events in order.
                 DispatchQueue.main.async {
@@ -183,7 +201,67 @@ final class ReceiverController {
     }
 
     func setPlaysAudio(_ plays: Bool) {
+        soundEnabled = plays
+        UserDefaults.standard.set(plays, forKey: SettingsKey.playAudio)
         hub?.playsAudio = plays
+    }
+
+    func toggleSound() {
+        setPlaysAudio(!soundEnabled)
+    }
+
+    /// Silences one device, leaving the rest as they are.
+    func toggleMute(_ session: SessionID) {
+        guard let tile = tile(session) else { return }
+        tile.isMuted.toggle()
+        hub?.setMuted(tile.isMuted, for: session)
+    }
+
+    /// Saves what a device is showing as a PNG in Pictures ▸ Flect.
+    func snapshot(_ session: SessionID) {
+        guard let tile = tile(session) else { return }
+        guard #available(macOS 14.4, *), let picture = tile.view.renderer.displayedPixelBuffer() else {
+            show(SnapshotNotice(message: "Flect couldn't capture that picture.", url: nil))
+            return
+        }
+        let name = tile.name
+        let carried = Unchecked(picture)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let notice: SnapshotNotice
+            do {
+                let url = try Snapshot.write(carried.value, deviceName: name)
+                notice = SnapshotNotice(message: "Saved \(url.lastPathComponent)", url: url)
+            } catch {
+                notice = SnapshotNotice(message: error.localizedDescription, url: nil)
+            }
+            await MainActor.run { self?.show(notice) }
+        }
+    }
+
+    /// The device a menu command acts on: the enlarged one, or the only one.
+    var commandTarget: SessionID? {
+        focusedTile ?? (tiles.count == 1 ? tiles[0].id : nil)
+    }
+
+    func snapshotCommandTarget() {
+        if let target = commandTarget {
+            snapshot(target)
+        }
+    }
+
+    func revealSnapshot() {
+        guard let url = snapshotNotice?.url else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func show(_ notice: SnapshotNotice) {
+        snapshotNotice = notice
+        noticeTimer?.cancel()
+        noticeTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.snapshotNotice = nil
+        }
     }
 
     private func setFocus(_ session: SessionID?) {
@@ -275,6 +353,8 @@ final class ReceiverController {
         deviceNames = [:]
         disconnectRequested = [:]
         connections = 0
+        snapshotNotice = nil
+        noticeTimer?.cancel()
         keepDisplayAwake(false)
     }
 
@@ -306,6 +386,13 @@ final class ReceiverController {
             awakeActivity = nil
         }
     }
+}
+
+/// Carries a picture from the main actor to a background task.
+private struct Unchecked<T>: @unchecked Sendable {
+    let value: T
+
+    init(_ value: T) { self.value = value }
 }
 
 private extension ReceiverLogLevel {

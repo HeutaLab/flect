@@ -6,11 +6,13 @@ teacher's Mac, and from there to the room's Apple TV or projector.
 Free and open source (GPL-3.0), funded by value for value: use it for
 nothing, and pay what it's worth if it helps your school.
 
-## What works (0.2)
+## What works
 
 - iPad and iPhone screen mirroring, decoded in hardware by macOS itself
 - Up to twelve devices side by side (four by default), each labelled with its name; click one to enlarge it
 - The iPad's sound (AAC-ELD while mirroring, Apple Lossless for music). With several devices you hear the enlarged one, or else the first to connect
+- Silence one iPad, or all sound, with a click
+- Save what an iPad is showing as a PNG in Pictures ▸ Flect (needs macOS 14.4)
 - An optional four-digit code, shown big on screen, so only people in the room can connect
 - Full screen, and controls that fade away so the class sees only the iPad
 - The display stays awake while mirroring
@@ -27,8 +29,12 @@ Flect needs macOS 14 or later.
 
 When several iPads mirror at once they appear side by side, each labelled
 with its name. Click one to enlarge it (and hear it); click again, or press
-⌘0, to show them all. Hover over an iPad to disconnect just that one. With
-more than four, each iPad sends a smaller picture so the Wi-Fi keeps up.
+⌘0, to show them all. Hover over an iPad for its buttons: silence it, save a
+snapshot of it, enlarge it or disconnect it. With more than four, each iPad
+sends a smaller picture so the Wi-Fi keeps up.
+
+⌘S saves a snapshot of the enlarged iPad (or the only one), and ⇧⌘M silences
+everything.
 
 **Flect → Settings** changes the name iPads see (a room name works well),
 how many can show at once, the on-screen code, and whether the iPad's sound

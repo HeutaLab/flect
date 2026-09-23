@@ -18,6 +18,7 @@ final class DeviceSession: @unchecked Sendable {
     private var output: AudioOutput?
     private var gain: Float = 1
     private var audible = false
+    private var muted = false
 
     private let lifeLock = NSLock()
     private var lastSignOfLife = Date()
@@ -91,7 +92,7 @@ final class DeviceSession: @unchecked Sendable {
 
     func handleAudio(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat) {
         audioLock.withLock {
-            guard audible else { return }
+            guard audible, !muted else { return }
             if decoder?.format != format {
                 decoder = AudioStreamDecoder(format: format)
             }
@@ -124,11 +125,30 @@ final class DeviceSession: @unchecked Sendable {
         let stopped: AudioOutput? = audioLock.withLock {
             self.audible = audible
             guard !audible else { return nil }
-            decoder?.reset()
-            defer { output = nil }
-            return output
+            return takeOutput()
         }
         stopped?.stop()
+    }
+
+    var isMuted: Bool {
+        audioLock.withLock { muted }
+    }
+
+    /// Silences this device on its own, whether or not it's the one heard.
+    func setMuted(_ muted: Bool) {
+        let stopped: AudioOutput? = audioLock.withLock {
+            self.muted = muted
+            guard muted else { return nil }
+            return takeOutput()
+        }
+        stopped?.stop()
+    }
+
+    /// Hands back the audio output, if any, to be stopped outside the lock.
+    private func takeOutput() -> AudioOutput? {
+        decoder?.reset()
+        defer { output = nil }
+        return output
     }
 
     func stop() {

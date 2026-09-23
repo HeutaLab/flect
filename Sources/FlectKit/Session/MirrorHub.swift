@@ -67,6 +67,26 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
         updateAudibleSession()
     }
 
+    public func isMuted(_ id: SessionID) -> Bool {
+        existingSession(id)?.isMuted ?? false
+    }
+
+    /// Silences one device. A muted device stays silent even when it is the
+    /// one that would be heard; the others don't take over.
+    public func setMuted(_ muted: Bool, for id: SessionID) {
+        existingSession(id)?.setMuted(muted)
+        updateAudibleSession()
+    }
+
+    /// The device whose sound plays: the enlarged one, else the first to
+    /// connect. Nothing plays when sound is off, or when that device is muted.
+    static func audibleSession(focused: SessionID?, order: [SessionID],
+                               muted: Set<SessionID>, soundOn: Bool) -> SessionID? {
+        guard soundOn else { return nil }
+        guard let chosen = focused.flatMap({ order.contains($0) ? $0 : nil }) ?? order.first else { return nil }
+        return muted.contains(chosen) ? nil : chosen
+    }
+
     /// Devices that have stopped checking in for longer than `timeout`.
     public func stalledSessions(timeout: TimeInterval, now: Date = Date()) -> [SessionID] {
         let all = lock.withLock { Array(sessions.values) }
@@ -103,8 +123,9 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
     private func updateAudibleSession() {
         audibleLock.withLock {
             let (previous, next, live): (SessionID?, SessionID?, [SessionID: DeviceSession]) = lock.withLock {
-                let focusedLive = focused.flatMap { sessions[$0] != nil ? $0 : nil }
-                let wanted = audioEnabled ? (focusedLive ?? order.first) : nil
+                let muted = Set(sessions.values.filter(\.isMuted).map(\.id))
+                let wanted = Self.audibleSession(focused: focused, order: order,
+                                                 muted: muted, soundOn: audioEnabled)
                 defer { audible = wanted }
                 return (audible, wanted, sessions)
             }

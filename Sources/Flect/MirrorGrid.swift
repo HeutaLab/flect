@@ -22,7 +22,8 @@ struct MirrorGrid: View {
                 DeviceTileView(
                     tile: tile,
                     showsName: several || controller.focusedTile != nil,
-                    showsControls: controlsVisible && hovered == tile.id && (several || controller.focusedTile != nil),
+                    showsControls: controlsVisible && hovered == tile.id,
+                    showsEnlarge: several || controller.focusedTile != nil,
                     isFocused: controller.focusedTile == tile.id)
                 .onHover { inside in
                     if inside {
@@ -41,6 +42,7 @@ private struct DeviceTileView: View {
     let tile: DeviceTile
     let showsName: Bool
     let showsControls: Bool
+    let showsEnlarge: Bool
     let isFocused: Bool
 
     var body: some View {
@@ -75,31 +77,50 @@ private struct DeviceTileView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomLeading) {
-            if showsName {
-                Text(tile.name)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(8)
+            if showsName || tile.isMuted {
+                HStack(spacing: 6) {
+                    if tile.isMuted {
+                        Image(systemName: "speaker.slash.fill")
+                            .accessibilityLabel("Silenced")
+                    }
+                    if showsName {
+                        Text(tile.name).lineLimit(1)
+                    }
+                }
+                .font(.callout.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.regularMaterial, in: Capsule())
+                .padding(8)
             }
         }
         .overlay(alignment: .bottomTrailing) {
             if showsControls {
                 HStack(spacing: 6) {
-                    Button(isFocused ? "Show All" : "Enlarge",
-                           systemImage: isFocused ? "square.grid.2x2" : "arrow.up.left.and.arrow.down.right") {
-                        controller.toggleFocus(tile.id)
+                    Button(tile.isMuted ? "Unmute" : "Mute",
+                           systemImage: tile.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                        controller.toggleMute(tile.id)
                     }
-                    .help(isFocused ? "Show every device" : "Fill the window with this device")
+                    .help(tile.isMuted ? "Let this device be heard" : "Silence this device")
+                    if controller.canSnapshot {
+                        Button("Snapshot", systemImage: "camera") {
+                            controller.snapshot(tile.id)
+                        }
+                        .help("Save what this device shows, in Pictures ▸ Flect")
+                    }
+                    if showsEnlarge {
+                        Button(isFocused ? "Show All" : "Enlarge",
+                               systemImage: isFocused ? "square.grid.2x2" : "arrow.up.left.and.arrow.down.right") {
+                            controller.toggleFocus(tile.id)
+                        }
+                        .help(isFocused ? "Show every device" : "Fill the window with this device")
+                    }
                     Button("Disconnect", systemImage: "xmark") {
                         controller.disconnect(tile.id)
                     }
                     .help("Stop showing this device")
                 }
                 .labelStyle(.iconOnly)
-                .controlSize(.large)
                 .padding(8)
             }
         }

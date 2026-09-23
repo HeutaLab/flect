@@ -23,6 +23,10 @@ struct ContentView: View {
             } else {
                 WaitingView()
             }
+
+            if let notice = controller.snapshotNotice {
+                SnapshotNoticeView(notice: notice)
+            }
         }
         .onContinuousHover { phase in
             guard controller.isMirroring else { return }
@@ -191,6 +195,32 @@ private struct CodeText: View {
     }
 }
 
+// MARK: - Snapshots
+
+private struct SnapshotNoticeView: View {
+    @Environment(ReceiverController.self) private var controller
+    let notice: SnapshotNotice
+
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 12) {
+                Image(systemName: notice.url != nil ? "camera.fill" : "exclamationmark.triangle.fill")
+                Text(notice.message)
+                    .lineLimit(2)
+                if notice.url != nil {
+                    Button("Show in Finder") { controller.revealSnapshot() }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.bottom, 28)
+        }
+        .transition(.opacity)
+    }
+}
+
 // MARK: - Mirroring
 
 private struct MirroringBar: View {
@@ -206,6 +236,10 @@ private struct MirroringBar: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 20)
+                Button(controller.soundEnabled ? "Mute Sound" : "Turn Sound On",
+                       systemImage: controller.soundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill") {
+                    controller.toggleSound()
+                }
                 if controller.focusedTile != nil {
                     Button("Show All", systemImage: "square.grid.2x2") {
                         controller.showAll()

@@ -21,6 +21,13 @@ struct FlectApp: App {
                 Button("Show All") { controller.showAll() }
                     .keyboardShortcut("0", modifiers: .command)
                     .disabled(controller.focusedTile == nil)
+                Button("Save Snapshot") { controller.snapshotCommandTarget() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(controller.commandTarget == nil || !controller.canSnapshot)
+                Button(controller.soundEnabled ? "Mute Sound" : "Turn Sound On") { controller.toggleSound() }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .disabled(controller.tiles.isEmpty)
+                Divider()
                 Button("Disconnect All") { controller.disconnectAll() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
                     .disabled(controller.connections == 0)
