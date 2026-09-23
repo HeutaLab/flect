@@ -152,9 +152,9 @@ httpd_get_connection_by_type (httpd_t *httpd, connection_type_t type, int instan
     return NULL;
 }
 
-/* Flect: room for a dozen devices mirroring at once, plus the brief extra
+/* Flect: room for two dozen devices mirroring at once, plus the brief extra
  * connections devices make to check a receiver (was 12, as in Apple TV 3) */
-#define MAX_CONNECTIONS 32
+#define MAX_CONNECTIONS 64
 httpd_t *
 httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
 {

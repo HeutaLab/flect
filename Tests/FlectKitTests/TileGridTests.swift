@@ -37,6 +37,11 @@ struct TileGridTests {
         #expect(TileGrid.best(count: 12, in: window, aspectRatios: Array(repeating: iPad, count: 12), spacing: 6) == (4, 3))
     }
 
+    @Test("Twenty-four iPads make a 6 by 4 grid")
+    func twentyFour() {
+        #expect(TileGrid.best(count: 24, in: window, aspectRatios: Array(repeating: iPad, count: 24), spacing: 6) == (6, 4))
+    }
+
     @Test("A picture sits centred at the largest size that fits")
     func pictureFrame() {
         let tile = CGSize(width: 800, height: 500)

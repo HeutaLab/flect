@@ -1,5 +1,5 @@
 diff --git a/httpd.c b/httpd.c
-index 56a3742..8ccc9fb 100644
+index 56a3742..cc70a4a 100644
 --- a/httpd.c
 +++ b/httpd.c
 @@ -13,6 +13,7 @@
@@ -15,9 +15,9 @@ index 56a3742..8ccc9fb 100644
  }
  
 -#define MAX_CONNECTIONS 12  /* value used in AppleTV 3*/
-+/* Flect: room for a dozen devices mirroring at once, plus the brief extra
++/* Flect: room for two dozen devices mirroring at once, plus the brief extra
 + * connections devices make to check a receiver (was 12, as in Apple TV 3) */
-+#define MAX_CONNECTIONS 32
++#define MAX_CONNECTIONS 64
  httpd_t *
  httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
  {

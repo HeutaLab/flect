@@ -9,7 +9,7 @@ nothing, and pay what it's worth if it helps your school.
 ## What works
 
 - iPad and iPhone screen mirroring, decoded in hardware by macOS itself
-- Up to twelve devices side by side (four by default), each labelled with its name; click one to enlarge it
+- Up to twenty-four devices side by side (four by default), each labelled with its name; click one to enlarge it
 - The iPad's sound (AAC-ELD while mirroring, Apple Lossless for music). With several devices you hear the enlarged one, or else the first to connect
 - Silence one iPad, or all sound, with a click
 - Save what an iPad is showing as a PNG in Pictures ▸ Flect (needs macOS 14.4)
@@ -32,7 +32,14 @@ When several iPads mirror at once they appear side by side, each labelled
 with its name. Click one to enlarge it (and hear it); click again, or press
 ⌘0, to show them all. Hover over an iPad for its buttons: silence it, save a
 snapshot of it, enlarge it or disconnect it. With more than four, each iPad
-sends a smaller picture so the Wi-Fi keeps up.
+sends a smaller picture so the Wi-Fi keeps up. Beyond about twelve, put the
+Mac on wired Ethernet if you can: one Mac decodes two dozen screens without
+breaking a sweat, but the Wi-Fi carrying them is another matter. There's a
+measurement you can run on a classroom Mac:
+
+```bash
+FLECT_CAPACITY=24 swift test --filter Capacity
+```
 
 ⌘S saves a snapshot of the enlarged iPad (or the only one), ⌘R starts and
 stops recording it, and ⇧⌘M silences everything.
