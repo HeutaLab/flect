@@ -24,8 +24,8 @@ struct ContentView: View {
                 WaitingView()
             }
 
-            if let notice = controller.snapshotNotice {
-                SnapshotNoticeView(notice: notice)
+            if let notice = controller.savedFileNotice {
+                SavedFileNoticeView(notice: notice)
             }
         }
         .onContinuousHover { phase in
@@ -197,9 +197,9 @@ private struct CodeText: View {
 
 // MARK: - Snapshots
 
-private struct SnapshotNoticeView: View {
+private struct SavedFileNoticeView: View {
     @Environment(ReceiverController.self) private var controller
-    let notice: SnapshotNotice
+    let notice: SavedFileNotice
 
     var body: some View {
         VStack {
@@ -209,7 +209,7 @@ private struct SnapshotNoticeView: View {
                 Text(notice.message)
                     .lineLimit(2)
                 if notice.url != nil {
-                    Button("Show in Finder") { controller.revealSnapshot() }
+                    Button("Show in Finder") { controller.revealSavedFile() }
                 }
             }
             .padding(.horizontal, 18)

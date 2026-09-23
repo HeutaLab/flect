@@ -82,13 +82,17 @@ public protocol AirPlayReceiverDelegate: AnyObject, Sendable {
 
     /// Return false to refuse the codec.
     func receiverAcceptsVideo(_ session: SessionID, isH265: Bool) -> Bool
-    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session: SessionID, isH265: Bool)
+    /// `deviceTime` is the sending device's own clock, in nanoseconds, and
+    /// covers its video and audio alike: what keeps a recording in step.
+    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session: SessionID, isH265: Bool,
+                            deviceTime: UInt64)
     func receiverVideoSize(_ size: CGSize, session: SessionID)
     func receiverVideoPaused(_ paused: Bool, session: SessionID)
     func receiverVideoStopped(_ session: SessionID)
 
     func receiverAudioFormat(_ format: AirPlayAudioFormat, session: SessionID)
-    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat, session: SessionID)
+    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat,
+                             session: SessionID, deviceTime: UInt64)
     /// AirPlay volume: -30 dB (quietest) to 0 dB (full); -144 dB is mute.
     func receiverAudioVolume(decibels: Float, session: SessionID)
     func receiverAudioFlush(_ session: SessionID)
@@ -274,10 +278,11 @@ extension AirPlayReceiver {
         callbacks.video_codec = { context, session, isH265 in
             (delegate(context)?.receiverAcceptsVideo(session, isH265: isH265) ?? false) ? 0 : -1
         }
-        callbacks.video_frame = { context, session, data, length, _, isH265, _ in
+        callbacks.video_frame = { context, session, data, length, _, isH265, deviceTime in
             guard let data, length > 0 else { return }
             delegate(context)?.receiverVideoFrame(
-                UnsafeRawBufferPointer(start: data, count: length), session: session, isH265: isH265)
+                UnsafeRawBufferPointer(start: data, count: length), session: session,
+                isH265: isH265, deviceTime: deviceTime)
         }
         callbacks.video_size = { context, session, sourceWidth, sourceHeight, _, _ in
             delegate(context)?.receiverVideoSize(
@@ -294,10 +299,11 @@ extension AirPlayReceiver {
             guard let format = AirPlayAudioFormat(rawValue: Int(type)) else { return }
             delegate(context)?.receiverAudioFormat(format, session: session)
         }
-        callbacks.audio_packet = { context, session, data, length, type, _ in
+        callbacks.audio_packet = { context, session, data, length, type, deviceTime in
             guard let data, length > 0, let format = AirPlayAudioFormat(rawValue: Int(type)) else { return }
             delegate(context)?.receiverAudioPacket(
-                UnsafeRawBufferPointer(start: data, count: length), format: format, session: session)
+                UnsafeRawBufferPointer(start: data, count: length), format: format,
+                session: session, deviceTime: deviceTime)
         }
         callbacks.audio_volume = { context, session, volume in
             delegate(context)?.receiverAudioVolume(decibels: volume, session: session)

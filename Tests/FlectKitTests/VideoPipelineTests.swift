@@ -48,8 +48,9 @@ struct VideoPipelineTests {
         var keyframes = 0
         var sizeReports: [CGSize] = []
 
-        for annexB in encoded {
-            let frame = try annexB.withUnsafeBytes { try assembler.assemble($0) }
+        for (index, annexB) in encoded.enumerated() {
+            let time = CMTime(value: CMTimeValue(index), timescale: 30)
+            let frame = try annexB.withUnsafeBytes { try assembler.assemble($0, presentationTime: time) }
             let assembled = try #require(frame)
             if assembled.isKeyframe { keyframes += 1 }
             if let size = assembled.newSize { sizeReports.append(size) }
@@ -72,7 +73,7 @@ struct VideoPipelineTests {
         assembler.reset(codec: .h264)
         // Strip the parameter sets from the first frame, as if we joined mid-stream.
         let withoutSets = SyntheticStream.removingParameterSets(encoded[1])
-        let frame = try withoutSets.withUnsafeBytes { try assembler.assemble($0) }
+        let frame = try withoutSets.withUnsafeBytes { try assembler.assemble($0, presentationTime: .zero) }
         #expect(frame == nil)
     }
 }

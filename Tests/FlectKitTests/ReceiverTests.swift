@@ -150,12 +150,12 @@ final class SessionRecorder: AirPlayReceiverDelegate, @unchecked Sendable {
     func receiverHeartbeat(_ session: SessionID) {}
     func receiverShowCode(_ code: String, session: SessionID) {}
     func receiverAcceptsVideo(_ session: SessionID, isH265: Bool) -> Bool { true }
-    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session: SessionID, isH265: Bool) {}
+    func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session: SessionID, isH265: Bool, deviceTime: UInt64) {}
     func receiverVideoSize(_ size: CGSize, session: SessionID) {}
     func receiverVideoPaused(_ paused: Bool, session: SessionID) {}
     func receiverVideoStopped(_ session: SessionID) {}
     func receiverAudioFormat(_ format: AirPlayAudioFormat, session: SessionID) {}
-    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat, session: SessionID) {}
+    func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat, session: SessionID, deviceTime: UInt64) {}
     func receiverAudioVolume(decibels: Float, session: SessionID) {}
     func receiverAudioFlush(_ session: SessionID) {}
 }

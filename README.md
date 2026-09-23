@@ -13,6 +13,7 @@ nothing, and pay what it's worth if it helps your school.
 - The iPad's sound (AAC-ELD while mirroring, Apple Lossless for music). With several devices you hear the enlarged one, or else the first to connect
 - Silence one iPad, or all sound, with a click
 - Save what an iPad is showing as a PNG in Pictures ▸ Flect (needs macOS 14.4)
+- Record an iPad to a QuickTime movie in Movies ▸ Flect, with its sound
 - An optional four-digit code, shown big on screen, so only people in the room can connect
 - Full screen, and controls that fade away so the class sees only the iPad
 - The display stays awake while mirroring
@@ -33,8 +34,16 @@ with its name. Click one to enlarge it (and hear it); click again, or press
 snapshot of it, enlarge it or disconnect it. With more than four, each iPad
 sends a smaller picture so the Wi-Fi keeps up.
 
-⌘S saves a snapshot of the enlarged iPad (or the only one), and ⇧⌘M silences
-everything.
+⌘S saves a snapshot of the enlarged iPad (or the only one), ⌘R starts and
+stops recording it, and ⇧⌘M silences everything.
+
+Recording writes the picture exactly as the iPad sent it, so it costs the Mac
+almost nothing, and the sound goes in alongside even if you have silenced
+that iPad in the room. A red badge with the elapsed time sits on the picture
+while it records, so the class can see. The file closes by itself if the iPad
+disconnects. Expect a few gigabytes an hour. Recording children's screens is
+a data-protection matter for your school, so check your policy before you
+make a habit of it.
 
 **Flect → Settings** changes the name iPads see (a room name works well),
 how many can show at once, the on-screen code, and whether the iPad's sound

@@ -38,7 +38,7 @@ final class VideoStreamAssembler {
         parameterSets = [:]
     }
 
-    func assemble(_ annexB: UnsafeRawBufferPointer) throws -> Frame? {
+    func assemble(_ annexB: UnsafeRawBufferPointer, presentationTime: CMTime) throws -> Frame? {
         let bytes = annexB.bindMemory(to: UInt8.self)
         guard let base = bytes.baseAddress else { return nil }
 
@@ -110,10 +110,11 @@ final class VideoStreamAssembler {
             offset += 4 + unit.count
         }
 
-        // Shown as soon as it is decoded: mirroring wants the lowest latency.
+        // The timestamp is the device's, for recordings; on screen the frame
+        // is shown as soon as it is decoded, which is what mirroring wants.
         var timing = CMSampleTimingInfo(
             duration: .invalid,
-            presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            presentationTimeStamp: presentationTime,
             decodeTimeStamp: .invalid)
         var sampleSize = length
         var sampleBuffer: CMSampleBuffer?

@@ -19,6 +19,9 @@ public enum MirrorEvent: Sendable, Equatable {
     case sessionEnded(SessionID)
     /// The device vanished without saying goodbye; disconnect it.
     case connectionLost(SessionID)
+    case recordingStarted(SessionID, URL)
+    /// The recording closed: a summary, or why it failed.
+    case recordingFinished(SessionID, RecordingSummary?, String?)
 }
 
 /// Receives every connected device: routes each one's video and sound to
@@ -65,6 +68,44 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
     public func focus(_ id: SessionID?) {
         lock.withLock { focused = id }
         updateAudibleSession()
+    }
+
+    public func isRecording(_ id: SessionID) -> Bool {
+        existingSession(id)?.isRecording ?? false
+    }
+
+    /// How long this device has been recording, for the badge on screen.
+    public func recordingDuration(_ id: SessionID) -> TimeInterval {
+        existingSession(id)?.recordingDuration ?? 0
+    }
+
+    /// Starts recording one device to Movies ▸ Flect and returns the file.
+    @discardableResult
+    public func startRecording(_ id: SessionID, deviceName: String, folder: URL? = nil) throws -> URL {
+        guard let session = existingSession(id) else {
+            throw DeviceRecorder.Failure.cannotWrite("That device is no longer connected.")
+        }
+        let folder = folder ?? SavedFile.recordingsFolder()
+        let url = folder.appendingPathComponent(SavedFile.name(deviceName: deviceName, extension: "mov"))
+        try session.startRecording(to: url)
+        onEvent(.recordingStarted(id, url))
+        return url
+    }
+
+    /// Closes a recording; the result arrives as `.recordingFinished`.
+    public func stopRecording(_ id: SessionID) {
+        guard let session = existingSession(id) else { return }
+        Task { await self.finishRecording(id, session: session) }
+    }
+
+    private func finishRecording(_ id: SessionID, session: DeviceSession) async {
+        guard let result = await session.stopRecording() else { return }
+        switch result {
+        case .success(let summary):
+            onEvent(.recordingFinished(id, summary, nil))
+        case .failure(let error):
+            onEvent(.recordingFinished(id, nil, error.localizedDescription))
+        }
     }
 
     public func isMuted(_ id: SessionID) -> Bool {
@@ -165,6 +206,7 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
             return session
         }
         guard let removed else { return }
+        Task { await self.finishRecording(id, session: removed) }
         removed.stop()
         updateAudibleSession()
         onEvent(.sessionEnded(id))
@@ -187,10 +229,11 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
         return true
     }
 
-    public func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session id: SessionID, isH265: Bool) {
+    public func receiverVideoFrame(_ annexB: UnsafeRawBufferPointer, session id: SessionID,
+                                   isH265: Bool, deviceTime: UInt64) {
         guard let session = session(id) else { return }
         do {
-            let result = try session.handleVideo(annexB, isH265: isH265)
+            let result = try session.handleVideo(annexB, isH265: isH265, deviceTime: deviceTime)
             if result.started {
                 onEvent(.videoStarted(id))
             }
@@ -211,7 +254,10 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
     }
 
     public func receiverVideoStopped(_ id: SessionID) {
-        if existingSession(id)?.stopVideo() == true {
+        guard let session = existingSession(id) else { return }
+        // No more pictures are coming, so close any recording.
+        Task { await self.finishRecording(id, session: session) }
+        if session.stopVideo() {
             onEvent(.videoStopped(id))
         }
     }
@@ -222,8 +268,9 @@ public final class MirrorHub: AirPlayReceiverDelegate, @unchecked Sendable {
         }
     }
 
-    public func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat, session id: SessionID) {
-        session(id)?.handleAudio(packet, format: format)
+    public func receiverAudioPacket(_ packet: UnsafeRawBufferPointer, format: AirPlayAudioFormat,
+                                    session id: SessionID, deviceTime: UInt64) {
+        session(id)?.handleAudio(packet, format: format, deviceTime: deviceTime)
     }
 
     public func receiverAudioVolume(decibels: Float, session id: SessionID) {

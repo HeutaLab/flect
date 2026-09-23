@@ -21,6 +21,8 @@ final class DeviceTile: Identifiable {
     var isPaused = false
     /// Silenced on its own, whether or not it is the device being heard.
     var isMuted = false
+    /// When recording started, for the badge on screen.
+    var recordingSince: Date?
     /// The picture's size, once known.
     var videoSize: CGSize?
     /// The tile's own video layer, kept for as long as the device shows
@@ -38,8 +40,8 @@ final class DeviceTile: Identifiable {
     }
 }
 
-/// What happened to the last snapshot, shown briefly in the window.
-struct SnapshotNotice: Equatable {
+/// What happened to the last saved file, shown briefly in the window.
+struct SavedFileNotice: Equatable {
     let message: String
     let url: URL?
 }
@@ -75,7 +77,7 @@ final class ReceiverController {
     private(set) var connections = 0
     /// Whether any device's sound plays on this Mac.
     private(set) var soundEnabled = true
-    private(set) var snapshotNotice: SnapshotNotice?
+    private(set) var savedFileNotice: SavedFileNotice?
 
     /// Snapshots need macOS 14.4 or later.
     var canSnapshot: Bool {
@@ -221,21 +223,45 @@ final class ReceiverController {
     func snapshot(_ session: SessionID) {
         guard let tile = tile(session) else { return }
         guard #available(macOS 14.4, *), let picture = tile.view.renderer.displayedPixelBuffer() else {
-            show(SnapshotNotice(message: "Flect couldn't capture that picture.", url: nil))
+            show(SavedFileNotice(message: "Flect couldn't capture that picture.", url: nil))
             return
         }
         let name = tile.name
         let carried = Unchecked(picture)
         Task.detached(priority: .userInitiated) { [weak self] in
-            let notice: SnapshotNotice
+            let notice: SavedFileNotice
             do {
                 let url = try Snapshot.write(carried.value, deviceName: name)
-                notice = SnapshotNotice(message: "Saved \(url.lastPathComponent)", url: url)
+                notice = SavedFileNotice(message: "Saved \(url.lastPathComponent)", url: url)
             } catch {
-                notice = SnapshotNotice(message: error.localizedDescription, url: nil)
+                notice = SavedFileNotice(message: error.localizedDescription, url: nil)
             }
             await MainActor.run { self?.show(notice) }
         }
+    }
+
+    /// Starts or stops recording one device to Movies ▸ Flect.
+    func toggleRecording(_ session: SessionID) {
+        guard let tile = tile(session), let hub else { return }
+        if tile.recordingSince != nil {
+            hub.stopRecording(session)
+            return
+        }
+        do {
+            try hub.startRecording(session, deviceName: tile.name)
+        } catch {
+            show(SavedFileNotice(message: error.localizedDescription, url: nil))
+        }
+    }
+
+    func recordCommandTarget() {
+        if let target = commandTarget {
+            toggleRecording(target)
+        }
+    }
+
+    var isRecordingCommandTarget: Bool {
+        commandTarget.flatMap { tile($0)?.recordingSince } != nil
     }
 
     /// The device a menu command acts on: the enlarged one, or the only one.
@@ -249,18 +275,18 @@ final class ReceiverController {
         }
     }
 
-    func revealSnapshot() {
-        guard let url = snapshotNotice?.url else { return }
+    func revealSavedFile() {
+        guard let url = savedFileNotice?.url else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func show(_ notice: SnapshotNotice) {
-        snapshotNotice = notice
+    private func show(_ notice: SavedFileNotice) {
+        savedFileNotice = notice
         noticeTimer?.cancel()
         noticeTimer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(6))
             guard !Task.isCancelled else { return }
-            self?.snapshotNotice = nil
+            self?.savedFileNotice = nil
         }
     }
 
@@ -306,6 +332,17 @@ final class ReceiverController {
         case .connectionLost(let id):
             logger.notice("Lost the connection to \(self.deviceNames[id] ?? "a device", privacy: .public)")
             disconnect(id)
+        case .recordingStarted(let id, _):
+            tile(id)?.recordingSince = Date()
+        case .recordingFinished(let id, let summary, let error):
+            tile(id)?.recordingSince = nil
+            if let summary {
+                show(SavedFileNotice(
+                    message: "Saved \(summary.url.lastPathComponent) (\(Self.length(summary.duration)))",
+                    url: summary.url))
+            } else if let error {
+                show(SavedFileNotice(message: error, url: nil))
+            }
         }
     }
 
@@ -353,7 +390,7 @@ final class ReceiverController {
         deviceNames = [:]
         disconnectRequested = [:]
         connections = 0
-        snapshotNotice = nil
+        savedFileNotice = nil
         noticeTimer?.cancel()
         keepDisplayAwake(false)
     }
@@ -385,6 +422,14 @@ final class ReceiverController {
             ProcessInfo.processInfo.endActivity(activity)
             awakeActivity = nil
         }
+    }
+}
+
+extension ReceiverController {
+    /// "2:14", for recording lengths.
+    static func length(_ seconds: TimeInterval) -> String {
+        let whole = Int(seconds.rounded())
+        return String(format: "%d:%02d", whole / 60, whole % 60)
     }
 }
 

@@ -76,6 +76,24 @@ private struct DeviceTileView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            if let since = tile.recordingSince {
+                // Always visible, so the class can see it is being recorded.
+                TimelineView(.periodic(from: since, by: 1)) { context in
+                    HStack(spacing: 6) {
+                        Circle().fill(.red).frame(width: 9, height: 9)
+                        Text(ReceiverController.length(context.date.timeIntervalSince(since)))
+                            .monospacedDigit()
+                    }
+                    .font(.callout.weight(.medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(8)
+                }
+                .accessibilityLabel("Recording")
+            }
+        }
         .overlay(alignment: .bottomLeading) {
             if showsName || tile.isMuted {
                 HStack(spacing: 6) {
@@ -97,6 +115,13 @@ private struct DeviceTileView: View {
         .overlay(alignment: .bottomTrailing) {
             if showsControls {
                 HStack(spacing: 6) {
+                    Button(tile.recordingSince != nil ? "Stop Recording" : "Record",
+                           systemImage: tile.recordingSince != nil ? "stop.circle.fill" : "record.circle") {
+                        controller.toggleRecording(tile.id)
+                    }
+                    .help(tile.recordingSince != nil
+                          ? "Stop recording this device"
+                          : "Record this device, in Movies ▸ Flect")
                     Button(tile.isMuted ? "Unmute" : "Mute",
                            systemImage: tile.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
                         controller.toggleMute(tile.id)

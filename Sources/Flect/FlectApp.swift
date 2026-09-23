@@ -21,6 +21,11 @@ struct FlectApp: App {
                 Button("Show All") { controller.showAll() }
                     .keyboardShortcut("0", modifiers: .command)
                     .disabled(controller.focusedTile == nil)
+                Button(controller.isRecordingCommandTarget ? "Stop Recording" : "Start Recording") {
+                    controller.recordCommandTarget()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(controller.commandTarget == nil)
                 Button("Save Snapshot") { controller.snapshotCommandTarget() }
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(controller.commandTarget == nil || !controller.canSnapshot)

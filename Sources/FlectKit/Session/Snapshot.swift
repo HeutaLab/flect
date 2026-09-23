@@ -20,22 +20,11 @@ public enum Snapshot {
 
     /// Where snapshots go: Pictures ▸ Flect.
     public static func defaultFolder() -> URL {
-        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures")
-        return pictures.appendingPathComponent("Flect", isDirectory: true)
+        SavedFile.folder(.picturesDirectory, fallback: "Pictures")
     }
 
-    /// "Mia's iPad 2026-09-23 at 11.05.12.png", safe to use as a file name.
     public static func fileName(deviceName: String, date: Date = Date()) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let cleaned = deviceName
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = cleaned.isEmpty ? "iPad" : cleaned
-        return "\(name) \(formatter.string(from: date)).png"
+        SavedFile.name(deviceName: deviceName, date: date, extension: "png")
     }
 
     /// Writes the picture as a PNG and returns where it went.
