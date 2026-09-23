@@ -1,6 +1,7 @@
 // Flect — AirPlay receiver for Mac. GPL-3.0-or-later.
 
 import AppKit
+import FlectKit
 import SwiftUI
 
 struct ContentView: View {
@@ -203,34 +204,84 @@ private struct CodeText: View {
 
 private struct ApprovalRequests: View {
     @Environment(ReceiverController.self) private var controller
+    @State private var expanded = false
 
     var body: some View {
+        let waiting = controller.approvals.waiting
         VStack {
             VStack(spacing: 10) {
-                ForEach(controller.approvals.waiting) { request in
-                    HStack(spacing: 14) {
-                        Image(systemName: "ipad.landscape")
-                            .font(.title2)
-                            .foregroundStyle(.tint)
-                        Text("\(request.name) wants to show")
-                            .font(.headline)
-                            .lineLimit(1)
-                        Spacer(minLength: 16)
-                        Button("Not now") { controller.decline(request.session) }
-                        Button("Show") { controller.approve(request.session) }
-                            .buttonStyle(.borderedProminent)
+                if waiting.count == 1, let request = waiting.first {
+                    RequestRow(request: request)
+                } else {
+                    // One card, however many are waiting: a class's worth of
+                    // cards would bury the screen.
+                    VStack(spacing: 12) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "ipad.landscape")
+                                .font(.title2)
+                                .foregroundStyle(.tint)
+                            Text("\(waiting.count) iPads want to show")
+                                .font(.headline)
+                            Spacer(minLength: 16)
+                            Button(expanded ? "Hide" : "Choose") { expanded.toggle() }
+                            Button("Not now") { controller.declineAll() }
+                            Button("Show All") { controller.approveAll() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        if expanded {
+                            ScrollView {
+                                VStack(spacing: 8) {
+                                    ForEach(waiting) { request in
+                                        RequestRow(request: request, compact: true)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 260)
+                        }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: 540)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .shadow(radius: 14)
                 }
             }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 560)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .shadow(radius: 14)
             .padding(.top, controller.isMirroring ? 72 : 24)
 
             Spacer()
         }
+        .onChange(of: waiting.isEmpty) {
+            if waiting.isEmpty { expanded = false }
+        }
+    }
+}
+
+private struct RequestRow: View {
+    @Environment(ReceiverController.self) private var controller
+    let request: ApprovalQueue.Request
+    var compact = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if !compact {
+                Image(systemName: "ipad.landscape")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+            }
+            Text(compact ? request.name : "\(request.name) wants to show")
+                .font(compact ? .body : .headline)
+                .lineLimit(1)
+            Spacer(minLength: 16)
+            Button("Not now") { controller.decline(request.session) }
+            if compact {
+                Button("Show") { controller.approve(request.session) }
+                    .buttonStyle(.bordered)
+            } else {
+                Button("Show") { controller.approve(request.session) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(compact ? 4 : 0)
     }
 }
 

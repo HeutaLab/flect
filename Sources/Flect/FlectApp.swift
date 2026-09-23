@@ -18,6 +18,10 @@ struct FlectApp: App {
         .defaultSize(width: 1024, height: 720)
         .commands {
             CommandMenu("Receiver") {
+                Button("Let All Waiting iPads On") { controller.approveAll() }
+                    .keyboardShortcut("a", modifiers: [.command, .option])
+                    .disabled(controller.approvals.isEmpty)
+                Divider()
                 Button("Show All") { controller.showAll() }
                     .keyboardShortcut("0", modifiers: .command)
                     .disabled(controller.focusedTile == nil)

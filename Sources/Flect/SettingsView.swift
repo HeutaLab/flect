@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.name) private var name = ""
     @AppStorage(SettingsKey.requireCode) private var requireCode = false
     @AppStorage(SettingsKey.requireApproval) private var requireApproval = false
+    @AppStorage(SettingsKey.rememberApprovals) private var rememberApprovals = true
     @AppStorage(SettingsKey.playAudio) private var playAudio = true
     @AppStorage(SettingsKey.maxDevices) private var maxDevices = 4
     @State private var draftName = ""
@@ -24,8 +25,20 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Ask before showing an iPad", isOn: $requireApproval)
+                if requireApproval {
+                    Toggle("Remember iPads I've allowed", isOn: $rememberApprovals)
+                    if !controller.allowedDeviceNames.isEmpty {
+                        LabeledContent {
+                            Button("Forget All") { controller.forgetAllowedDevices() }
+                        } label: {
+                            Text("\(controller.allowedDeviceNames.count) remembered")
+                            Text(controller.allowedDeviceNames.prefix(6).joined(separator: ", "))
+                                .lineLimit(2)
+                        }
+                    }
+                }
             } footer: {
-                Text("A card appears when an iPad connects, and it only reaches the screen when you say so. An iPad you have let on comes straight back if it drops out.")
+                Text("A card appears when an iPad connects, and it only reaches the screen when you say so. Several at once share one card with Show All. Remembered iPads come back without asking, this lesson and the next.")
                     .foregroundStyle(.secondary)
             }
 
@@ -62,6 +75,7 @@ struct SettingsView: View {
         .onDisappear(perform: applyName)
         .onChange(of: requireCode) { controller.restart() }
         .onChange(of: requireApproval) { controller.setRequiresApproval(requireApproval) }
+        .onChange(of: rememberApprovals) { controller.setRemembersApprovals(rememberApprovals) }
         .onChange(of: maxDevices) { controller.restart() }
         .onChange(of: playAudio) { controller.setPlaysAudio(playAudio) }
     }

@@ -11,6 +11,9 @@ enum SettingsKey {
     static let playAudio = "playAudio"
     static let maxDevices = "maxDevices"
     static let requireApproval = "requireApproval"
+    static let rememberApprovals = "rememberApprovals"
+    /// Device IDs let on before, and the names they had.
+    static let allowedDevices = "allowedDevices"
 }
 
 /// A device showing on screen.
@@ -71,6 +74,10 @@ final class ReceiverController {
     private(set) var requiresApproval = false
     /// Who is waiting, and who has been let on.
     private(set) var approvals = ApprovalQueue()
+    /// Whether iPads let on are remembered after Flect quits.
+    private(set) var remembersApprovals = true
+    /// The iPads remembered, by name, for Settings.
+    private(set) var allowedDeviceNames: [String] = []
     private(set) var maxDevices = 1
     /// Devices showing, in the order they started.
     private(set) var tiles: [DeviceTile] = []
@@ -114,6 +121,8 @@ final class ReceiverController {
                                           fallback: ReceiverName.suggested)
         requiresCode = defaults.bool(forKey: SettingsKey.requireCode)
         requiresApproval = defaults.bool(forKey: SettingsKey.requireApproval)
+        remembersApprovals = defaults.object(forKey: SettingsKey.rememberApprovals) as? Bool ?? true
+        loadAllowedDevices()
         soundEnabled = defaults.object(forKey: SettingsKey.playAudio) as? Bool ?? true
         maxDevices = max(1, defaults.object(forKey: SettingsKey.maxDevices) as? Int ?? 4)
         receiverName = name
@@ -228,12 +237,61 @@ final class ReceiverController {
         }
     }
 
-    /// Lets a waiting device on screen, and remembers it for this session.
+    /// Lets a waiting device on screen, and remembers it.
     func approve(_ session: SessionID) {
+        let deviceID = deviceIDs[session] ?? ""
+        let name = deviceNames[session] ?? "iPad"
         approvals.approve(session)
         hub?.setMuted(false, for: session)
         if heldBack.remove(session) != nil {
             addTile(session)
+        }
+        if remembersApprovals, !deviceID.isEmpty {
+            var stored = UserDefaults.standard.dictionary(forKey: SettingsKey.allowedDevices) as? [String: String] ?? [:]
+            stored[deviceID] = name
+            UserDefaults.standard.set(stored, forKey: SettingsKey.allowedDevices)
+            allowedDeviceNames = Self.names(from: stored)
+        }
+    }
+
+    func setRemembersApprovals(_ remembers: Bool) {
+        remembersApprovals = remembers
+        UserDefaults.standard.set(remembers, forKey: SettingsKey.rememberApprovals)
+        loadAllowedDevices()
+    }
+
+    /// Forgets every remembered iPad; each has to ask again.
+    func forgetAllowedDevices() {
+        UserDefaults.standard.removeObject(forKey: SettingsKey.allowedDevices)
+        approvals.forgetDevices()
+        allowedDeviceNames = []
+    }
+
+    private func loadAllowedDevices() {
+        let stored = UserDefaults.standard.dictionary(forKey: SettingsKey.allowedDevices) as? [String: String] ?? [:]
+        allowedDeviceNames = Self.names(from: stored)
+        if remembersApprovals {
+            approvals = ApprovalQueue(approvedDevices: Set(stored.keys))
+        } else {
+            approvals.forgetDevices()
+        }
+    }
+
+    private static func names(from stored: [String: String]) -> [String] {
+        stored.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// Lets everyone waiting on screen at once.
+    func approveAll() {
+        for request in approvals.waiting {
+            approve(request.session)
+        }
+    }
+
+    /// Turns everyone waiting away; each can ask again.
+    func declineAll() {
+        for request in approvals.waiting {
+            decline(request.session)
         }
     }
 

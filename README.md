@@ -62,6 +62,12 @@ reaches the screen or the speakers until you click **Show**. Its picture is
 held ready in the meantime, so it appears the instant you do. **Not now**
 disconnects it, and it can ask again.
 
+When several are waiting they share one card: **Show All** lets the lot on
+(⌥⌘A does the same), and **Choose** opens the list to pick them off one by
+one. An iPad you've let on is remembered, by default even after Flect quits,
+so the class set appears without asking tomorrow while a stranger's iPad
+still has to. Settings shows how many are remembered and can forget them.
+
 To show the iPad on the class TV, mirror the Mac to the Apple TV as usual
 (Control Centre on the Mac → Screen Mirroring), and put Flect in full screen.
 

@@ -71,6 +71,37 @@ struct ApprovalTests {
         #expect(queue.waiting.map(\.name) == ["Red7", "Red19"])
     }
 
+    @Test("Letting all on at once clears the queue and remembers them")
+    func approveAll() {
+        var queue = ApprovalQueue()
+        for (index, name) in ["Red7", "Red8", "Red19", "Red20"].enumerated() {
+            queue.request(session: SessionID(index + 1), deviceID: "id\(index)", name: name, model: "iPad")
+        }
+        queue.approveAll()
+        #expect(queue.isEmpty)
+        #expect((1...4).allSatisfy { queue.isApproved(SessionID($0)) })
+        // They come back without asking.
+        #expect(queue.request(session: 9, deviceID: "id2", name: "Red19", model: "iPad") == .alreadyApproved)
+    }
+
+    @Test("Remembered iPads are let on again after a restart")
+    func remembersBetweenLaunches() {
+        var queue = ApprovalQueue()
+        queue.request(session: 1, deviceID: "aa:bb", name: "Red7", model: "iPad")
+        queue.request(session: 2, deviceID: "cc:dd", name: "Red8", model: "iPad")
+        queue.approveAll()
+        let remembered = queue.approvedDeviceIDs
+        #expect(remembered == ["aa:bb", "cc:dd"])
+
+        // Flect quits and starts again with that list.
+        var afterRestart = ApprovalQueue(approvedDevices: remembered)
+        #expect(afterRestart.request(session: 5, deviceID: "aa:bb", name: "Red7", model: "iPad") == .alreadyApproved)
+        #expect(afterRestart.request(session: 6, deviceID: "ee:ff", name: "A stranger", model: "iPad") == .waiting)
+
+        afterRestart.forgetDevices()
+        #expect(afterRestart.request(session: 7, deviceID: "aa:bb", name: "Red7", model: "iPad") == .waiting)
+    }
+
     @Test("Starting afresh forgets everyone")
     func removeAll() {
         var queue = ApprovalQueue()

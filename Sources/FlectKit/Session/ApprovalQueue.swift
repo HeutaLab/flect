@@ -4,9 +4,9 @@ import Foundation
 
 /// Devices waiting for the teacher to let them on screen.
 ///
-/// A device that has been let on once is remembered for as long as the
-/// receiver runs, so an iPad that drops off the Wi-Fi and comes back
-/// doesn't have to be approved again.
+/// A device that has been let on once is remembered, so an iPad that drops
+/// off the Wi-Fi and comes back doesn't have to be approved again. The app
+/// can keep that list between launches: see `approvedDeviceIDs`.
 public struct ApprovalQueue: Sendable {
     public struct Request: Sendable, Equatable, Identifiable {
         public let session: SessionID
@@ -28,7 +28,17 @@ public struct ApprovalQueue: Sendable {
     private var approvedDevices: Set<String> = []
     private var approvedSessions: Set<SessionID> = []
 
-    public init() {}
+    public init(approvedDevices: Set<String> = []) {
+        self.approvedDevices = approvedDevices
+    }
+
+    /// The devices let on so far, for keeping between launches.
+    public var approvedDeviceIDs: Set<String> { approvedDevices }
+
+    /// Forgets the remembered devices; anyone connecting has to ask again.
+    public mutating func forgetDevices() {
+        approvedDevices.removeAll()
+    }
 
     public var isEmpty: Bool { waiting.isEmpty }
 
@@ -61,6 +71,14 @@ public struct ApprovalQueue: Sendable {
         }
         approvedSessions.insert(session)
         waiting.removeAll { $0.session == session }
+    }
+
+    /// Lets everyone waiting on screen: the usual case in a classroom,
+    /// where the teacher knows the iPads in the room.
+    public mutating func approveAll() {
+        for request in waiting {
+            approve(request.session)
+        }
     }
 
     /// Turns a device away. It isn't remembered, so it can ask again.
